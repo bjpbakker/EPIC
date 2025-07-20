@@ -14,7 +14,7 @@ async fn named_information(Path((alg, val)): Path<(String, String)>) -> (StatusC
 #[tokio::main]
 async fn main() {
     let app = Router::new()
-        .route("/", get(|| async { "Hello, world" }))
+        .route("/", get(|| async { "Bomans" }))
         .route("/.well-known/ni/{alg}/{val}", get(named_information));
 
     let listener = tokio::net::TcpListener::bind("[::]:3000").await.unwrap();
