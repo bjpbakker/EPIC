@@ -1,15 +1,17 @@
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, anyhow};
+use bytes::Bytes;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use rpki::{
-    rrdp::{self, DeltaInfo, Hash, NotificationFile, SnapshotInfo},
+    rrdp::{self, DeltaInfo, Hash, NotificationFile, PublishElement, Snapshot, SnapshotInfo},
     uri::Https,
 };
 
@@ -20,6 +22,37 @@ use crate::{
     util::{self, Time},
 };
 
+/// This type contains all current files published in a repository.
+pub struct RepoContent {
+    elements: HashMap<Hash, PublishElement>,
+}
+
+impl RepoContent {
+    /// To be deprecated when we implement proper fetching..
+    pub fn create_test() -> Self {
+        let test_snapshot_file = include_bytes!(
+            "../test-resources/rrdp-rev2656/e9be21e7-c537-4564-b742-64700978c6b4/2656/snapshot.xml"
+        );
+        let test_snapshot_bytes = Bytes::from_static(test_snapshot_file);
+
+        let snapshot = Snapshot::parse(test_snapshot_bytes.as_ref()).unwrap();
+
+        let elements = snapshot
+            .into_elements()
+            .into_iter()
+            .map(|e| (Hash::from_data(e.data()), e))
+            .collect();
+
+        RepoContent { elements }
+    }
+
+    /// Get a map of the current content by SHA256 hash to the PublishElement,
+    /// including the rsync URI and Bytes content of the file.
+    pub fn elements(&self) -> &HashMap<Hash, PublishElement> {
+        &self.elements
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RrdpState {
     /// The notification source information
@@ -28,8 +61,12 @@ pub struct RrdpState {
     /// Maps notification, and other URIs to disk and vice versa
     mappings: SourceMappings,
 
+    /// Current snapshot content
+    #[serde(skip)]
+    snapshot: Option<Snapshot>,
+
     /// Current snapshot state (xml, hash, path)
-    snapshot: Option<SnapshotState>,
+    snapshot_state: Option<SnapshotState>,
 
     /// Delta states (xml, hash, path)
     deltas: Vec<DeltaState>,
@@ -50,6 +87,7 @@ impl RrdpState {
             notification_source,
             mappings,
             snapshot: None,
+            snapshot_state: None,
             deltas: vec![],
             deprecated_files: vec![],
         })
@@ -71,7 +109,7 @@ impl RrdpState {
                 )
             })?;
 
-        if let Some(snapshot) = &recovered.snapshot {
+        if let Some(snapshot) = &recovered.snapshot_state {
             info!(
                 "Recovered prior state => session: {}, serial: {}",
                 snapshot.session_id, snapshot.serial
@@ -103,7 +141,7 @@ impl RrdpState {
 
                 let mut session_reset = false;
 
-                if let Some(snapshot) = &self.snapshot {
+                if let Some(snapshot) = &self.snapshot_state {
                     if snapshot.session_id() != notification_file.session_id() {
                         // set session reset, ensure that all deltas will be deprecated
                         session_reset = true;
@@ -210,7 +248,7 @@ impl RrdpState {
         }
 
         // update snapshot info
-        self.snapshot = Some(staged.snapshot);
+        self.snapshot_state = Some(staged.snapshot);
 
         // deprecate old deltas
         if staged.session_reset {
@@ -310,7 +348,7 @@ impl RrdpState {
 
     fn make_notification_file(&self) -> Result<NotificationFile> {
         let snapshot = self
-            .snapshot
+            .snapshot_state
             .as_ref()
             .ok_or_else(|| anyhow!("Trying to write notification file without snapshot"))?;
 
@@ -360,13 +398,13 @@ impl RrdpState {
     }
 
     pub fn snapshot_path(&self) -> Option<PathBuf> {
-        self.snapshot
+        self.snapshot_state
             .as_ref()
             .map(|snapshot| self.mappings.path(snapshot.rel_path()))
     }
 
     pub fn snapshot(&self) -> Option<&SnapshotState> {
-        self.snapshot.as_ref()
+        self.snapshot_state.as_ref()
     }
 
     /// Stage new deltas
@@ -657,6 +695,11 @@ impl DeprecatedFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn create_repo_content_from_snapshot() {
+        RepoContent::create_test();
+    }
 
     #[test]
     fn rrdp_state_deserialize() {
