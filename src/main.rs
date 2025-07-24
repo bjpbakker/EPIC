@@ -47,17 +47,20 @@ async fn main() {
             )
                 .into_response();
         }
-        match URL_SAFE_NO_PAD.decode(val.clone()) {
+        match URL_SAFE_NO_PAD.decode(val.as_bytes()) {
             Ok(h) if h.len() == 32 => {
-                let hash = Hash::try_from(h.as_slice()).unwrap();
-                println!("GET {hash}");
+                if let Ok(hash) = Hash::try_from(h.as_slice()) {
+                    println!("GET {hash}");
 
-                let r = Arc::clone(&repo);
-                let objects = r.elements();
-                return match objects.get(&hash) {
-                    Some(obj) => der(obj.data().to_vec()).into_response(),
-                    None => not_found(hash).into_response(),
-                };
+                    let r = Arc::clone(&repo);
+                    let objects = r.elements();
+                    return match objects.get(&hash) {
+                        Some(obj) => der(obj.data().to_vec()).into_response(),
+                        None => not_found(hash).into_response(),
+                    };
+                } else {
+                    bad_hash(val).into_response()
+                }
             }
             _ => bad_hash(val).into_response(),
         }
