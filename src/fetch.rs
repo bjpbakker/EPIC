@@ -5,13 +5,13 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use bytes::Bytes;
 use log::{info, warn};
 use reqwest::{
+    StatusCode,
     blocking::Client,
     header::{ETAG, IF_NONE_MATCH, USER_AGENT},
-    StatusCode,
 };
 
 use rpki::{
@@ -368,9 +368,11 @@ mod tests {
         let expected_file_source = FetchSource::File(base_path.join("foo/bar/bla.xml"));
         assert_eq!(file_source, expected_file_source);
 
-        assert!(fetcher
-            .resolve_source(&https("https://other.host/rrdp/foo.txt"))
-            .is_err());
+        assert!(
+            fetcher
+                .resolve_source(&https("https://other.host/rrdp/foo.txt"))
+                .is_err()
+        );
     }
 
     #[test]
@@ -400,8 +402,10 @@ mod tests {
             FetchSource::strict_uri(https("https://other.host/rrdp/foo/bar/bla.xml"));
         assert_eq!(file_source, expected_file_source);
 
-        assert!(fetcher
-            .resolve_source(&https("https://other.host/rrdp/foo.txt"))
-            .is_err());
+        assert!(
+            fetcher
+                .resolve_source(&https("https://other.host/rrdp/foo.txt"))
+                .is_err()
+        );
     }
 }
