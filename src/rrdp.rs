@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use rpki::{
+    repository::{Crl, Manifest},
     rrdp::{self, DeltaInfo, Hash, NotificationFile, PublishElement, Snapshot, SnapshotInfo},
     uri::Https,
 };
@@ -25,7 +26,7 @@ use crate::{
 /// This type contains all current files published in a repository.
 pub struct RepoContent {
     elements: HashMap<Hash, PublishElement>,
-    // manifests: HashMap<Hash, Manifest>,
+    manifests: HashMap<Hash, Manifest>,
 }
 
 impl RepoContent {
@@ -42,19 +43,36 @@ impl RepoContent {
     }
 
     fn create_from_snapshot(snapshot: Snapshot) -> anyhow::Result<Self> {
-        let elements = snapshot
+        let elements: HashMap<Hash, PublishElement> = snapshot
             .into_elements()
             .into_iter()
             .map(|e| (Hash::from_data(e.data()), e))
             .collect();
 
-        Ok(RepoContent { elements })
+        let manifests: HashMap<Hash, Manifest> = elements
+            .iter()
+            .flat_map(|(h, p)| {
+                Manifest::decode(p.data().as_ref(), false)
+                    .ok()
+                    .map(|m| (h.clone(), m))
+            })
+            .collect();
+
+        Ok(RepoContent {
+            elements,
+            manifests,
+        })
     }
 
     /// Get a map of the current content by SHA256 hash to the PublishElement,
     /// including the rsync URI and Bytes content of the file.
     pub fn elements(&self) -> &HashMap<Hash, PublishElement> {
         &self.elements
+    }
+
+    /// Get a map of the current content by SHA256 hash to Manifest.
+    pub fn manifests(&self) -> &HashMap<Hash, Manifest> {
+        &self.manifests
     }
 }
 
