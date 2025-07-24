@@ -6,10 +6,14 @@ use axum::{
     routing::get,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use std::sync::Arc;
+use log::debug;
 use std::vec::Vec;
+use std::{process::exit, sync::Arc};
 
-use bomans::rrdp::RepoContent;
+use bomans::{
+    config::{self, Config},
+    rrdp::RepoContent,
+};
 use rpki::rrdp::Hash;
 
 fn bad_hash(val: String) -> (StatusCode, String) {
@@ -30,13 +34,22 @@ fn der(data: Vec<u8>) -> impl IntoResponse {
 
 #[tokio::main]
 async fn main() {
-    let repo = Arc::new(RepoContent::create_test());
+    if let Err(e) = run().await {
+        println!("Error: {e}");
+        exit(1)
+    }
+}
 
-    println!("# Inventory");
+async fn run() -> anyhow::Result<()> {
+    let _config = config::configure()?;
+
+    let repo = Arc::new(RepoContent::create_test()?);
+
+    debug!("# Inventory");
     for (hash, obj) in repo.elements().iter() {
         let encoded = URL_SAFE_NO_PAD.encode(hash);
         let uri = obj.uri();
-        println!("- {encoded} -> {uri}");
+        debug!("- {encoded} -> {uri}");
     }
 
     let named_information = async move |Path((alg, val)): Path<(String, String)>| {
@@ -50,7 +63,7 @@ async fn main() {
         match URL_SAFE_NO_PAD.decode(val.as_bytes()) {
             Ok(h) if h.len() == 32 => {
                 if let Ok(hash) = Hash::try_from(h.as_slice()) {
-                    println!("GET {hash}");
+                    debug!("GET {hash}");
 
                     let r = Arc::clone(&repo);
                     let objects = r.elements();
@@ -73,5 +86,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind("[::]:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 
-    println!("# Server Logs");
+    debug!("# Server Logs");
+
+    Ok(())
 }

@@ -25,11 +25,12 @@ use crate::{
 /// This type contains all current files published in a repository.
 pub struct RepoContent {
     elements: HashMap<Hash, PublishElement>,
+    // manifests: HashMap<Hash, Manifest>,
 }
 
 impl RepoContent {
     /// To be deprecated when we implement proper fetching..
-    pub fn create_test() -> Self {
+    pub fn create_test() -> anyhow::Result<Self> {
         let test_snapshot_file = include_bytes!(
             "../test-resources/rrdp-rev2656/e9be21e7-c537-4564-b742-64700978c6b4/2656/snapshot.xml"
         );
@@ -37,13 +38,17 @@ impl RepoContent {
 
         let snapshot = Snapshot::parse(test_snapshot_bytes.as_ref()).unwrap();
 
+        Self::create_from_snapshot(snapshot)
+    }
+
+    fn create_from_snapshot(snapshot: Snapshot) -> anyhow::Result<Self> {
         let elements = snapshot
             .into_elements()
             .into_iter()
             .map(|e| (Hash::from_data(e.data()), e))
             .collect();
 
-        RepoContent { elements }
+        Ok(RepoContent { elements })
     }
 
     /// Get a map of the current content by SHA256 hash to the PublishElement,
@@ -698,7 +703,7 @@ mod tests {
 
     #[test]
     fn create_repo_content_from_snapshot() {
-        RepoContent::create_test();
+        RepoContent::create_test().unwrap();
     }
 
     #[test]
