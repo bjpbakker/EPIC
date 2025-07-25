@@ -20,12 +20,45 @@ use crate::{
     config::Config,
     fetch::{Fetcher, NotificationFileResponse},
     file_ops,
-    util::{self, Time},
+    util::{self, Time, de_bytes, ser_bytes},
 };
 
+/// This type contains a current element in a repository
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RepoContentElement {
+    /// The full URI where the the object was published.
+    uri: rpki::uri::Rsync,
+
+    /// The content of the object
+    #[serde(serialize_with = "ser_bytes", deserialize_with = "de_bytes")]
+    data: Bytes,
+}
+
+impl RepoContentElement {
+    pub fn try_manifest(&self) -> Option<Manifest> {
+        if self.uri.ends_with(".mft") {
+            Manifest::decode(self.data.as_ref(), false).ok()
+        } else {
+            None
+        }
+    }
+
+    pub fn data(&self) -> &Bytes {
+        &self.data
+    }
+}
+
+impl From<rpki::rrdp::PublishElement> for RepoContentElement {
+    fn from(el: rpki::rrdp::PublishElement) -> Self {
+        let (uri, data) = el.unpack();
+        Self { uri, data }
+    }
+}
+
 /// This type contains all current files published in a repository.
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RepoContent {
-    elements: HashMap<Hash, PublishElement>,
+    elements: HashMap<Hash, RepoContentElement>,
     manifests: HashMap<Hash, Manifest>,
 }
 
@@ -42,12 +75,13 @@ impl RepoContent {
         Self::create_from_snapshot(snapshot)
     }
 
+    /// Create a full new RepoContent based on an RRDP snapshot.
     fn create_from_snapshot(snapshot: Snapshot) -> anyhow::Result<Self> {
         // Get all the publish elements from the snapshot
-        let elements: HashMap<Hash, PublishElement> = snapshot
+        let elements: HashMap<Hash, RepoContentElement> = snapshot
             .into_elements()
             .into_iter()
-            .map(|e| (Hash::from_data(e.data()), e))
+            .map(|e| (Hash::from_data(e.data()), e.into()))
             .collect();
 
         // Get all currently valid manifests from the elements
@@ -55,18 +89,8 @@ impl RepoContent {
         // and expired manifests
         let manifests: HashMap<Hash, Manifest> = elements
             .iter()
-            .filter(|(_h, el)| el.uri().ends_with(".mft"))
-            .flat_map(|(h, p)| {
-                if let Ok(mft) = Manifest::decode(p.data().as_ref(), false) {
-                    if mft.is_stale() {
-                        None
-                    } else {
-                        Some((h.clone(), mft))
-                    }
-                } else {
-                    None
-                }
-            })
+            .flat_map(|(h, p)| p.try_manifest().map(|mft| (h.clone(), mft)))
+            .filter(|(_el, mft)| !mft.is_stale())
             .collect();
 
         Ok(RepoContent {
@@ -77,7 +101,7 @@ impl RepoContent {
 
     /// Get a map of the current PublishElements by their SHA256 hash
     /// including the rsync URI and Bytes content of the file.
-    pub fn elements(&self) -> &HashMap<Hash, PublishElement> {
+    pub fn elements(&self) -> &HashMap<Hash, RepoContentElement> {
         &self.elements
     }
 

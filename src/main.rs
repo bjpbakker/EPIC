@@ -45,12 +45,12 @@ async fn run() -> anyhow::Result<()> {
 
     let repo = Arc::new(RepoContent::create_test()?);
 
-    debug!("# Inventory");
-    for (hash, obj) in repo.elements().iter() {
-        let encoded = URL_SAFE_NO_PAD.encode(hash);
-        let uri = obj.uri();
-        debug!("- {encoded} -> {uri}");
-    }
+    // debug!("# Inventory");
+    // for (hash, obj) in repo.elements().iter() {
+    //     let encoded = URL_SAFE_NO_PAD.encode(hash);
+    //     let uri = obj.uri();
+    //     debug!("- {encoded} -> {uri}");
+    // }
 
     let named_information = async move |Path((alg, val)): Path<(String, String)>| {
         if alg != "sha-256" {
