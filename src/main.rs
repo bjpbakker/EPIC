@@ -11,7 +11,7 @@ use std::vec::Vec;
 use std::{process::exit, sync::Arc};
 
 use bomans::{
-    config::{self, Config},
+    config::{self},
     rrdp::RepoContent,
 };
 use rpki::rrdp::Hash;

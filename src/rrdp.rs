@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use rpki::{
-    repository::{Crl, Manifest},
+    repository::Manifest,
     rrdp::{self, DeltaInfo, Hash, NotificationFile, PublishElement, Snapshot, SnapshotInfo},
     uri::Https,
 };
@@ -43,18 +43,29 @@ impl RepoContent {
     }
 
     fn create_from_snapshot(snapshot: Snapshot) -> anyhow::Result<Self> {
+        // Get all the publish elements from the snapshot
         let elements: HashMap<Hash, PublishElement> = snapshot
             .into_elements()
             .into_iter()
             .map(|e| (Hash::from_data(e.data()), e))
             .collect();
 
+        // Get all currently valid manifests from the elements
+        // skip other objects, manifests that cannot be parsed
+        // and expired manifests
         let manifests: HashMap<Hash, Manifest> = elements
             .iter()
+            .filter(|(_h, el)| el.uri().ends_with(".mft"))
             .flat_map(|(h, p)| {
-                Manifest::decode(p.data().as_ref(), false)
-                    .ok()
-                    .map(|m| (h.clone(), m))
+                if let Ok(mft) = Manifest::decode(p.data().as_ref(), false) {
+                    if mft.is_stale() {
+                        None
+                    } else {
+                        Some((h.clone(), mft))
+                    }
+                } else {
+                    None
+                }
             })
             .collect();
 
@@ -64,13 +75,13 @@ impl RepoContent {
         })
     }
 
-    /// Get a map of the current content by SHA256 hash to the PublishElement,
+    /// Get a map of the current PublishElements by their SHA256 hash
     /// including the rsync URI and Bytes content of the file.
     pub fn elements(&self) -> &HashMap<Hash, PublishElement> {
         &self.elements
     }
 
-    /// Get a map of the current content by SHA256 hash to Manifest.
+    /// Get a map of the current manifists by their SHA256 hash
     pub fn manifests(&self) -> &HashMap<Hash, Manifest> {
         &self.manifests
     }
