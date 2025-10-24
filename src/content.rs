@@ -2,14 +2,12 @@
 
 use std::collections::HashMap;
 
-use anyhow::{Result, anyhow};
 use bytes::Bytes;
-use log::{debug, info};
 use serde::{Deserialize, Serialize};
 
 use rpki::{
     repository::Manifest,
-    rrdp::{Hash, PublishElement, Snapshot},
+    rrdp::{Hash, Snapshot},
 };
 
 use crate::util::{de_bytes, ser_bytes};
