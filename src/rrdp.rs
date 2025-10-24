@@ -89,7 +89,7 @@ impl RepoContent {
         // and expired manifests
         let manifests: HashMap<Hash, Manifest> = elements
             .iter()
-            .flat_map(|(h, p)| p.try_manifest().map(|mft| (h.clone(), mft)))
+            .flat_map(|(h, p)| p.try_manifest().map(|mft| (*h, mft)))
             .filter(|(_el, mft)| !mft.is_stale())
             .collect();
 
@@ -366,10 +366,7 @@ impl RrdpState {
     /// written files.
     pub fn write_notification(&self, delay: u64) -> Result<()> {
         if delay > 0 {
-            info!(
-                "Waiting for configured {} seconds before updating the notification file.",
-                delay
-            );
+            info!("Waiting for configured {delay} seconds before updating the notification file.",);
             std::thread::sleep(std::time::Duration::from_secs(delay));
         }
 

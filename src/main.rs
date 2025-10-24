@@ -67,10 +67,10 @@ async fn run() -> anyhow::Result<()> {
 
                     let r = Arc::clone(&repo);
                     let objects = r.elements();
-                    return match objects.get(&hash) {
+                    match objects.get(&hash) {
                         Some(obj) => der(obj.data().to_vec()).into_response(),
                         None => not_found(hash).into_response(),
-                    };
+                    }
                 } else {
                     bad_hash(val).into_response()
                 }

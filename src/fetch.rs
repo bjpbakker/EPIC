@@ -310,8 +310,7 @@ impl Fetcher {
             // download the new file. If it matches, then just continue.
             if !hash.matches(&existing) {
                 warn!(
-                    "Already downloaded file does not match hash, will download again, for uri: {}",
-                    uri
+                    "Already downloaded file does not match hash, will download again, for uri: {uri}"
                 );
             } else {
                 return Ok(());
