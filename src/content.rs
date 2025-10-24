@@ -54,7 +54,7 @@ pub struct RepoContent {
 }
 
 impl RepoContent {
-    /// To be deprecated when we implement proper fetching..
+    /// To do: make this #[cfg[test]] when we have real content fetching in place
     pub fn create_test() -> anyhow::Result<Self> {
         let test_snapshot_file = include_bytes!(
             "../test-resources/rrdp-rev2656/e9be21e7-c537-4564-b742-64700978c6b4/2656/snapshot.xml"
