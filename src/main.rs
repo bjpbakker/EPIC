@@ -12,7 +12,7 @@ use std::{process::exit, sync::Arc};
 
 use bomans::{
     config::{self},
-    rrdp::RepoContent,
+    content::RepoContent,
 };
 use rpki::rrdp::Hash;
 
