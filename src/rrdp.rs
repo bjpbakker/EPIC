@@ -30,6 +30,7 @@ pub struct RrdpState {
 
     /// Current snapshot content
     #[serde(skip)]
+    #[allow(dead_code)]
     snapshot: Option<Snapshot>,
 
     /// Current snapshot state (xml, hash, path)
