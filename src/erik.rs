@@ -25,7 +25,7 @@ use crate::content::RepoContent;
 /// DISCUSS: The draft says this should go up to 1024
 /// but we only go up to 256 here, because it's just
 /// much easier to take the first full byte from the
-/// authoirty key identifier, rather than the first
+/// authority key identifier, rather than the first
 /// 10 bits.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct ErikPartitionKey(u8);
@@ -130,7 +130,7 @@ pub struct ManifestRef {
     aki: KeyIdentifier,
     manifest_number: Serial,
     this_update: Time,
-    location: uri::Rsync, // SKI, draft wants a sequence here, I don't understand why
+    location: uri::Rsync, // URI for the signed object. The draft wants a sequence here?
 }
 
 impl TryFrom<&Manifest> for ManifestRef {
