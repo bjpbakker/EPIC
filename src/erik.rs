@@ -14,6 +14,7 @@ use rpki::{
         x509::{Serial, Time},
     },
     rrdp::Hash,
+    uri,
 };
 
 use crate::content::RepoContent;
@@ -129,7 +130,7 @@ pub struct ManifestRef {
     aki: KeyIdentifier,
     manifest_number: Serial,
     this_update: Time,
-    location: KeyIdentifier, // SKI, draft wants a sequence here, I don't understand why
+    location: uri::Rsync, // SKI, draft wants a sequence here, I don't understand why
 }
 
 impl TryFrom<&Manifest> for ManifestRef {
@@ -137,6 +138,13 @@ impl TryFrom<&Manifest> for ManifestRef {
 
     fn try_from(mft: &Manifest) -> Result<Self, Self::Error> {
         let manifest_bytes = mft.to_captured();
+
+        let location = mft
+            .cert()
+            .signed_object()
+            .ok_or(anyhow!("Manifest EE has no URI for the signed object"))?
+            .clone();
+
         Ok(ManifestRef {
             hash: Hash::from_data(&manifest_bytes),
             size: manifest_bytes.len(),
@@ -146,7 +154,7 @@ impl TryFrom<&Manifest> for ManifestRef {
                 .ok_or(anyhow!("Manifest has EE cert without AKI?!?"))?,
             manifest_number: mft.manifest_number(),
             this_update: mft.this_update(),
-            location: mft.cert().subject_key_identifier(),
+            location,
         })
     }
 }
