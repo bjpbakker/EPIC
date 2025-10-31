@@ -1,7 +1,8 @@
 //! Keep track of the content of an Erik cache.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
+use anyhow::anyhow;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
@@ -10,12 +11,15 @@ use rpki::{
     rrdp::{Hash, Snapshot},
 };
 
-use crate::util::{de_bytes, ser_bytes};
+use crate::{
+    erik::ManifestRef,
+    util::{de_bytes, ser_bytes},
+};
 
 /// This type contains a current element in a repository
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RepoContentElement {
-    /// The full URI where the the object was published.
+    /// The full URI where the object was published.
     uri: rpki::uri::Rsync,
 
     /// The content of the object
@@ -24,11 +28,34 @@ pub struct RepoContentElement {
 }
 
 impl RepoContentElement {
-    pub fn try_manifest(&self) -> Option<Manifest> {
+    pub fn try_manifest_ref(&self, accept_stale: bool) -> anyhow::Result<ManifestRef> {
         if self.uri.ends_with(".mft") {
-            Manifest::decode(self.data.as_ref(), false).ok()
+            let mft = Manifest::decode(self.data.as_ref(), false)?;
+            let hash = Hash::from_data(self.data.as_ref());
+            let size = self.data.len();
+            let aki = mft
+                .cert()
+                .authority_key_identifier()
+                .ok_or_else(|| anyhow!("manifest has no AKI?!?"))?;
+            let manifest_number = mft.manifest_number();
+
+            let this_update = mft.this_update();
+            let location = self.uri.clone();
+
+            if !accept_stale && mft.is_stale() {
+                Err(anyhow!("manifest is stale"))
+            } else {
+                Ok(ManifestRef::new(
+                    hash,
+                    size,
+                    aki,
+                    manifest_number,
+                    this_update,
+                    location,
+                ))
+            }
         } else {
-            None
+            Err(anyhow!("Not a manifest"))
         }
     }
 
@@ -48,7 +75,7 @@ impl From<rpki::rrdp::PublishElement> for RepoContentElement {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RepoContent {
     elements: HashMap<Hash, RepoContentElement>,
-    manifests: HashMap<Hash, Manifest>,
+    manifests: HashMap<Hash, Arc<ManifestRef>>,
 }
 
 impl RepoContent {
@@ -61,11 +88,13 @@ impl RepoContent {
 
         let snapshot = Snapshot::parse(test_snapshot_bytes.as_ref()).unwrap();
 
-        Self::create_from_snapshot(snapshot)
+        Self::create_from_snapshot(snapshot, true)
     }
 
     /// Create a full new RepoContent based on an RRDP snapshot.
-    fn create_from_snapshot(snapshot: Snapshot) -> anyhow::Result<Self> {
+    ///
+    /// if use_test = true stale manifests are included
+    fn create_from_snapshot(snapshot: Snapshot, accept_stale: bool) -> anyhow::Result<Self> {
         // Get all the publish elements from the snapshot
         let elements: HashMap<Hash, RepoContentElement> = snapshot
             .into_elements()
@@ -76,10 +105,9 @@ impl RepoContent {
         // Get all currently valid manifests from the elements
         // skip other objects, manifests that cannot be parsed
         // and expired manifests
-        let manifests: HashMap<Hash, Manifest> = elements
+        let manifests: HashMap<Hash, Arc<ManifestRef>> = elements
             .iter()
-            .flat_map(|(h, p)| p.try_manifest().map(|mft| (*h, mft)))
-            .filter(|(_el, mft)| !mft.is_stale())
+            .flat_map(|(h, p)| p.try_manifest_ref(accept_stale).map(|mft| (*h, mft.into())))
             .collect();
 
         Ok(RepoContent {
@@ -95,7 +123,7 @@ impl RepoContent {
     }
 
     /// Get a map of the current manifists by their SHA256 hash
-    pub fn manifests(&self) -> &HashMap<Hash, Manifest> {
+    pub fn manifests(&self) -> &HashMap<Hash, Arc<ManifestRef>> {
         &self.manifests
     }
 }
@@ -110,7 +138,8 @@ mod tests {
 
     #[test]
     fn create_repo_content_from_snapshot() {
-        RepoContent::create_test().unwrap();
+        let content = RepoContent::create_test().unwrap();
+        assert!(!content.manifests.is_empty());
     }
 
     #[test]

@@ -8,7 +8,11 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use rpki::{
-    crypto::KeyIdentifier,
+    crypto::{DigestAlgorithm, KeyIdentifier},
+    dep::bcder::{
+        Captured, Mode,
+        encode::{self, PrimitiveContent, Values},
+    },
     repository::{
         Manifest,
         x509::{Serial, Time},
@@ -16,6 +20,7 @@ use rpki::{
     rrdp::Hash,
     uri,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::content::RepoContent;
 
@@ -52,20 +57,15 @@ impl ErikIndex {
     pub fn from_content(index_scope: String, content: &RepoContent) -> Option<Self> {
         let mut partitions: HashMap<ErikPartitionKey, ErikPartition> = HashMap::new();
 
-        for mft_ref in content
-            .manifests()
-            .values()
-            // convert to ManifestRef and skip any mft without AKI (this should never happen)
-            .flat_map(|mft| ManifestRef::try_from(mft).ok())
-        {
-            let partition_key = ErikPartitionKey::from(&mft_ref);
+        for mft_ref in content.manifests().values() {
+            let partition_key = ErikPartitionKey::from(mft_ref.as_ref());
 
             if let Some(partition) = partitions.get_mut(&partition_key) {
-                partition.add_manifest_ref(mft_ref);
+                partition.add_manifest_ref(mft_ref.clone());
             } else {
                 partitions.insert(
                     partition_key,
-                    ErikPartition::create_from_manifest_ref(mft_ref),
+                    ErikPartition::create_from_manifest_ref(mft_ref.clone()),
                 );
             }
         }
@@ -102,10 +102,10 @@ pub struct ErikPartition {
 }
 
 impl ErikPartition {
-    fn create_from_manifest_ref(mft: ManifestRef) -> Self {
+    fn create_from_manifest_ref(mft: Arc<ManifestRef>) -> Self {
         let partition_time = mft.this_update;
         let mut manifest_refs = HashSet::new();
-        manifest_refs.insert(Arc::new(mft));
+        manifest_refs.insert(mft);
 
         ErikPartition {
             partition_time,
@@ -113,16 +113,16 @@ impl ErikPartition {
         }
     }
 
-    fn add_manifest_ref(&mut self, mft_ref: ManifestRef) {
+    fn add_manifest_ref(&mut self, mft_ref: Arc<ManifestRef>) {
         if self.partition_time > mft_ref.this_update {
             self.partition_time = mft_ref.this_update;
         }
-        self.manifest_refs.insert(Arc::new(mft_ref));
+        self.manifest_refs.insert(mft_ref);
     }
 }
 
 /// ManifestRef as defined in section 3 of the draft.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[allow(dead_code)]
 pub struct ManifestRef {
     hash: Hash,
@@ -130,7 +130,55 @@ pub struct ManifestRef {
     aki: KeyIdentifier,
     manifest_number: Serial,
     this_update: Time,
-    location: uri::Rsync, // URI for the signed object. The draft wants a sequence here?
+
+    /// DISCUS:
+    /// - Why do we need this?
+    /// - How should this be encoded? Like the full SIA?
+    /// - If we need this, why not the one rsync URI for the mft object itself?
+    /// - And if so, why can't we just encode it as a string?
+    ///
+    /// My guess it that the intent is to make this generic over whatever
+    /// SIA may become in future, but still why do we need this here? Users
+    /// can just get the actual object by hash and parse it.
+    ///
+    /// For now, just using a single Rsync URI here. But we may have to
+    /// change this.
+    location: uri::Rsync,
+}
+
+impl ManifestRef {
+    pub fn new(
+        hash: Hash,
+        size: usize,
+        aki: KeyIdentifier,
+        manifest_number: Serial,
+        this_update: Time,
+        location: uri::Rsync,
+    ) -> Self {
+        ManifestRef {
+            hash,
+            size,
+            aki,
+            manifest_number,
+            this_update,
+            location,
+        }
+    }
+}
+
+impl ManifestRef {
+    fn encode(&'_ self) -> impl encode::Values + '_ {
+        let size = self.size as u128;
+
+        encode::sequence((
+            self.hash.as_slice().encode(),
+            size.encode(),
+            self.aki.encode(),
+            self.manifest_number.encode(),
+            self.this_update.encode_generalized_time(),
+            self.location.encode_general_name(),
+        ))
+    }
 }
 
 impl TryFrom<&Manifest> for ManifestRef {
@@ -159,10 +207,91 @@ impl TryFrom<&Manifest> for ManifestRef {
     }
 }
 
+impl Ord for ManifestRef {
+    // Hashes are supposed to be unique, so we can order by hash alone
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.hash.as_slice().cmp(other.hash.as_slice())
+    }
+}
+
+impl PartialOrd for ManifestRef {
+    // Hashes are supposed to be unique, so we can order by hash alone
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// ErikPartitionEncoder
+///
+/// This type is introduced because of lifetime and typing
+/// shenanigans. It's hard to encode something that has a
+/// set or vec of some type. Manifests and ROAs in rpki-rs
+/// use a Captured for this and then have special code to
+/// construnct or or iterate over that content. This makes
+/// sense in Routinator because it avoids cloning data, and
+/// Krill does not care much, because it can just create the
+/// signed objects once and then keep them around.
+///
+/// In the contect of this codebase however, we want to keep
+/// many ManifestRef's around in Arcs for cheap sharing between
+/// various ErikPartitionIndex instances.
+///
+/// So, the best work around that I can come up with for now
+/// is to have an ErikPartitionEncoder type that can be built
+/// from an ErikPartition and that can own a 'Captured' for
+/// the ManifestRef entries. This is not too costly, as we
+/// should really only have to encode an ErikPartition once,
+/// after which we can keep the encoded bytes around and stick
+/// it in a hash -> bytes value store.
+///
+/// Better suggestions are welcome!
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct ErikPartitionEncoder {
+    // version [0]
+    // hashAlg SHA-256
+    /// most recent this update among manifests
+    partition_time: Time,
+    manifest_refs: Captured,
+}
+
+impl From<&ErikPartition> for ErikPartitionEncoder {
+    fn from(p: &ErikPartition) -> Self {
+        // Build a SORTED sequence of manifest refs
+        let mut captured = Captured::builder(Mode::Der);
+        let mut refs: Vec<_> = p.manifest_refs.iter().collect();
+        refs.sort();
+        for mft_ref in refs {
+            captured.extend(mft_ref.encode());
+        }
+
+        ErikPartitionEncoder {
+            partition_time: p.partition_time,
+            manifest_refs: captured.freeze(),
+        }
+    }
+}
+
+impl ErikPartitionEncoder {
+    /// Returns a value encoder for a reference to the manifest.
+    pub fn encode(&self) -> impl encode::Values {
+        encode::sequence((
+            self.partition_time.encode_generalized_time(),
+            DigestAlgorithm::sha256().encode(),
+            encode::sequence(&self.manifest_refs),
+        ))
+    }
+
+    /// Returns a DER encoded Captured for this.
+    pub fn to_captured(&self) -> Captured {
+        self.encode().to_captured(Mode::Der)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
-    use crate::content::RepoContent;
+    use crate::{config::Config, content::RepoContent};
 
     use super::*;
 
@@ -179,8 +308,19 @@ mod tests {
 
     #[test]
     fn erik_index_from_content() {
-        let repo_content = RepoContent::create_test().unwrap();
+        test_index_from_content();
+    }
 
-        ErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content);
+    #[test]
+    fn erik_partition_encode() {
+        let erik = test_index_from_content();
+        let partition = erik.partitions.values().next().unwrap();
+        let encoder = ErikPartitionEncoder::from(partition);
+        encoder.to_captured();
+    }
+
+    fn test_index_from_content() -> ErikIndex {
+        let repo_content = RepoContent::create_test().unwrap();
+        ErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content).unwrap()
     }
 }
