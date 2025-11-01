@@ -291,7 +291,7 @@ impl ErikPartitionEncoder {
 #[cfg(test)]
 mod tests {
 
-    use crate::{config::Config, content::RepoContent};
+    use crate::content::RepoContent;
 
     use super::*;
 
