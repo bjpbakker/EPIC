@@ -160,16 +160,15 @@ impl FetchSource {
         }?;
 
         // Verify the hash if provided
-        if let Some(hash) = hash {
-            if let FetchResponse::Data { bytes, .. } = &fetch_response {
-                if !hash.matches(bytes.as_ref()) {
-                    return Err(anyhow!(
-                        "Data at source: {} does not match hash '{}'",
-                        self,
-                        hash
-                    ));
-                }
-            }
+        if let Some(hash) = hash
+            && let FetchResponse::Data { bytes, .. } = &fetch_response
+            && !hash.matches(bytes.as_ref())
+        {
+            return Err(anyhow!(
+                "Data at source: {} does not match hash '{}'",
+                self,
+                hash
+            ));
         }
 
         if let Some(target_file) = target_file {
