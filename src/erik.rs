@@ -14,7 +14,7 @@ use rpki::{
         Captured, Ia5String, Mode, OctetString, Oid, Tag,
         encode::{self, PrimitiveContent, Values},
     },
-    oid::SHA256,
+    oid::{self, SHA256},
     repository::{
         Manifest,
         x509::{Serial, Time},
@@ -145,11 +145,19 @@ impl From<&ErikIndex> for ErikIndexContentEncoder {
     fn from(index: &ErikIndex) -> Self {
         let mut captured = Captured::builder(Mode::Der);
 
+        let mut partitions = vec![];
+
         for p in index.partitions.values() {
             let part_enc = ErikPartitionEncoder::from(p);
             let bytes = part_enc.to_captured().into_bytes();
             let erik_part_ref = ErikPartitionRef::new(&bytes);
-            captured.extend(erik_part_ref.encode());
+            partitions.push(erik_part_ref);
+        }
+
+        partitions.sort();
+
+        for p in partitions {
+            captured.extend(p.encode());
         }
 
         ErikIndexContentEncoder {
@@ -161,7 +169,7 @@ impl From<&ErikIndex> for ErikIndexContentEncoder {
 }
 
 /// ErikPartitionRef as defined in section 3 of the draft.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[allow(dead_code)]
 pub struct ErikPartitionRef {
     _identifier: u32, // To be deprecated
@@ -188,6 +196,20 @@ impl ErikPartitionRef {
             self.hash.as_slice().encode(),
             self.size.encode(),
         ))
+    }
+}
+
+impl Ord for ErikPartitionRef {
+    // Hashes are supposed to be unique, so we can order by hash alone
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.hash.as_slice().cmp(other.hash.as_slice())
+    }
+}
+
+impl PartialOrd for ErikPartitionRef {
+    // Hashes are supposed to be unique, so we can order by hash alone
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -304,19 +326,9 @@ pub struct ManifestRef {
     manifest_number: Serial,
     this_update: Time,
 
-    /// DISCUS:
-    /// - Why do we need this?
-    /// - How should this be encoded? Like the full SIA?
-    /// - If we need this, why not the one rsync URI for the mft object itself?
-    /// - And if so, why can't we just encode it as a string?
-    ///
-    /// My guess it that the intent is to make this generic over whatever
-    /// SIA may become in future, but still why do we need this here? Users
-    /// can just get the actual object by hash and parse it.
-    ///
-    /// For now, just using a single Rsync URI here. But we may have to
-    /// change this.
-    location: uri::Rsync,
+    /// For now this is a single URI for the AD_SIGNED_OBJECT
+    /// but we may get more access descriptors in future.
+    locations: uri::Rsync,
 }
 
 impl ManifestRef {
@@ -334,7 +346,7 @@ impl ManifestRef {
             aki,
             manifest_number,
             this_update,
-            location,
+            locations: location,
         }
     }
 }
@@ -349,7 +361,10 @@ impl ManifestRef {
             self.aki.encode(),
             self.manifest_number.encode(),
             self.this_update.encode_generalized_time(),
-            self.location.encode_general_name(),
+            encode::sequence((
+                oid::AD_SIGNED_OBJECT.encode(),
+                self.locations.encode_general_name(),
+            )),
         ))
     }
 }
@@ -360,7 +375,7 @@ impl TryFrom<&Manifest> for ManifestRef {
     fn try_from(mft: &Manifest) -> Result<Self, Self::Error> {
         let manifest_bytes = mft.to_captured();
 
-        let location = mft
+        let locations = mft
             .cert()
             .signed_object()
             .ok_or(anyhow!("Manifest EE has no URI for the signed object"))?
@@ -375,7 +390,7 @@ impl TryFrom<&Manifest> for ManifestRef {
                 .ok_or(anyhow!("Manifest has EE cert without AKI?!?"))?,
             manifest_number: mft.manifest_number(),
             this_update: mft.this_update(),
-            location,
+            locations,
         })
     }
 }
@@ -400,8 +415,6 @@ mod tests {
     use crate::content::RepoContent;
 
     use super::*;
-
-    // use base64::engine::general_purpose::STANDARD;
 
     use ::base64::prelude::*;
     use bytes::Bytes;
