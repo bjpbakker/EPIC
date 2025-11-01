@@ -405,7 +405,6 @@ mod tests {
 
     use ::base64::prelude::*;
     use bytes::Bytes;
-    use rpki::util::base64;
 
     #[test]
     fn manifest_ref_from_manifest() {
