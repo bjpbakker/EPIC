@@ -121,6 +121,73 @@ impl ErikPartition {
     }
 }
 
+/// ErikPartitionEncoder
+///
+/// This type is introduced because of lifetime and typing
+/// shenanigans. It's hard to encode something that has a
+/// set or vec of some type. Manifests and ROAs in rpki-rs
+/// use a Captured for this and then have special code to
+/// construnct or or iterate over that content. This makes
+/// sense in Routinator because it avoids cloning data, and
+/// Krill does not care much, because it can just create the
+/// signed objects once and then keep them around.
+///
+/// In the contect of this codebase however, we want to keep
+/// many ManifestRef's around in Arcs for cheap sharing between
+/// various ErikPartitionIndex instances.
+///
+/// So, the best work around that I can come up with for now
+/// is to have an ErikPartitionEncoder type that can be built
+/// from an ErikPartition and that can own a 'Captured' for
+/// the ManifestRef entries. This is not too costly, as we
+/// should really only have to encode an ErikPartition once,
+/// after which we can keep the encoded bytes around and stick
+/// it in a hash -> bytes value store.
+///
+/// Better suggestions are welcome!
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct ErikPartitionEncoder {
+    // version [0]
+    // hashAlg SHA-256
+    /// most recent this update among manifests
+    partition_time: Time,
+    manifest_refs: Captured,
+}
+
+impl From<&ErikPartition> for ErikPartitionEncoder {
+    fn from(p: &ErikPartition) -> Self {
+        // Build a SORTED sequence of manifest refs
+        let mut captured = Captured::builder(Mode::Der);
+        let mut refs: Vec<_> = p.manifest_refs.iter().collect();
+        refs.sort();
+        for mft_ref in refs {
+            captured.extend(mft_ref.encode());
+        }
+
+        ErikPartitionEncoder {
+            partition_time: p.partition_time,
+            manifest_refs: captured.freeze(),
+        }
+    }
+}
+
+impl ErikPartitionEncoder {
+    /// Returns a value encoder for a reference to the manifest.
+    pub fn encode(&self) -> impl encode::Values {
+        encode::sequence((
+            self.partition_time.encode_generalized_time(),
+            DigestAlgorithm::sha256().encode(),
+            encode::sequence(&self.manifest_refs),
+        ))
+    }
+
+    /// Returns a DER encoded Captured for this.
+    pub fn to_captured(&self) -> Captured {
+        self.encode().to_captured(Mode::Der)
+    }
+}
+
 /// ManifestRef as defined in section 3 of the draft.
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[allow(dead_code)]
@@ -218,73 +285,6 @@ impl PartialOrd for ManifestRef {
     // Hashes are supposed to be unique, so we can order by hash alone
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
-    }
-}
-
-/// ErikPartitionEncoder
-///
-/// This type is introduced because of lifetime and typing
-/// shenanigans. It's hard to encode something that has a
-/// set or vec of some type. Manifests and ROAs in rpki-rs
-/// use a Captured for this and then have special code to
-/// construnct or or iterate over that content. This makes
-/// sense in Routinator because it avoids cloning data, and
-/// Krill does not care much, because it can just create the
-/// signed objects once and then keep them around.
-///
-/// In the contect of this codebase however, we want to keep
-/// many ManifestRef's around in Arcs for cheap sharing between
-/// various ErikPartitionIndex instances.
-///
-/// So, the best work around that I can come up with for now
-/// is to have an ErikPartitionEncoder type that can be built
-/// from an ErikPartition and that can own a 'Captured' for
-/// the ManifestRef entries. This is not too costly, as we
-/// should really only have to encode an ErikPartition once,
-/// after which we can keep the encoded bytes around and stick
-/// it in a hash -> bytes value store.
-///
-/// Better suggestions are welcome!
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct ErikPartitionEncoder {
-    // version [0]
-    // hashAlg SHA-256
-    /// most recent this update among manifests
-    partition_time: Time,
-    manifest_refs: Captured,
-}
-
-impl From<&ErikPartition> for ErikPartitionEncoder {
-    fn from(p: &ErikPartition) -> Self {
-        // Build a SORTED sequence of manifest refs
-        let mut captured = Captured::builder(Mode::Der);
-        let mut refs: Vec<_> = p.manifest_refs.iter().collect();
-        refs.sort();
-        for mft_ref in refs {
-            captured.extend(mft_ref.encode());
-        }
-
-        ErikPartitionEncoder {
-            partition_time: p.partition_time,
-            manifest_refs: captured.freeze(),
-        }
-    }
-}
-
-impl ErikPartitionEncoder {
-    /// Returns a value encoder for a reference to the manifest.
-    pub fn encode(&self) -> impl encode::Values {
-        encode::sequence((
-            self.partition_time.encode_generalized_time(),
-            DigestAlgorithm::sha256().encode(),
-            encode::sequence(&self.manifest_refs),
-        ))
-    }
-
-    /// Returns a DER encoded Captured for this.
-    pub fn to_captured(&self) -> Captured {
-        self.encode().to_captured(Mode::Der)
     }
 }
 
