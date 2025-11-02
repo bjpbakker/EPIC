@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
 use rpki::{
-    crypto::{DigestAlgorithm, KeyIdentifier},
+    crypto::KeyIdentifier,
     dep::bcder::{
         Captured, Ia5String, Mode, OctetString, Oid, Tag,
         decode::{self, DecodeError, IntoSource, Source},
@@ -30,6 +30,10 @@ use crate::content::RepoContent;
 // See: https://misc.daniel-marschall.de/asn.1/oid-converter/online.php
 // 1.3.6.1.4.1.41948.826 => 06 0A 2B 06 01 04 01 82 C7 5C 86 3A
 pub const ERIK_INDEX_OID: Oid<&[u8]> = Oid(&[43, 6, 1, 4, 1, 130, 199, 92, 134, 58]);
+
+/// 1.3.6.1.4.1.41948.827
+// Use 'bin/mkoid' in the bcder lib to get the following:
+pub const ERIK_PARTITION_OID: Oid<&[u8]> = Oid(&[43, 6, 1, 4, 1, 130, 199, 92, 134, 59]);
 
 /// The Erik Partition key is used to determine
 /// which partition should be used for a ManifestRef
@@ -100,7 +104,7 @@ pub struct ErikIndex {
 
 impl ErikIndex {
     pub fn encode(&self) -> impl encode::Values {
-        let content =         encode::sequence_as(
+        let content = encode::sequence_as(
             Tag::CTX_0,
             OctetString::encode_wrapped(
                 Mode::Der,
@@ -267,27 +271,39 @@ impl ErikPartition {
     pub fn take_from<S: decode::Source>(
         cons: &mut decode::Constructed<S>,
     ) -> Result<Self, DecodeError<S::Error>> {
-        cons.take_sequence(|cons| {
-            let partition_time = Time::take_from(cons)?;
-            let alg = DigestAlgorithm::take_from(cons)?;
-            if alg != DigestAlgorithm::sha256() {
-                return Err(cons.content_err("Wrong digest algorithm"));
+        // Take the outer EncapsulatedContentInfo first
+        let content: OctetString = cons.take_sequence(|cons| {
+            let oid = Oid::take_from(cons)?;
+            if oid != ERIK_PARTITION_OID {
+                return Err(cons.content_err("not an Erik index OID"));
             }
+            cons.take_constructed_if(Tag::CTX_0, OctetString::take_from)
+        })?;
 
-            let mut manifest_refs = HashSet::new();
+        Mode::Der
+            .decode(content, |cons| {
+                cons.take_sequence(|cons| {
+                    let partition_time = Time::take_from(cons)?;
+                    let hash_algorithm = Oid::take_from(cons)?;
+                    if hash_algorithm != oid::SHA256 {
+                        return Err(cons.content_err("invalid digest algorithm"));
+                    }
+                    let mut manifest_refs = HashSet::new();
 
-            cons.take_sequence(|cons| {
-                while let Some(entry) = ManifestRef::take_opt_from(cons)? {
-                    manifest_refs.insert(Arc::new(entry));
-                }
-                Ok(())
-            })?;
+                    cons.take_sequence(|cons| {
+                        while let Some(entry) = ManifestRef::take_opt_from(cons)? {
+                            manifest_refs.insert(Arc::new(entry));
+                        }
+                        Ok(())
+                    })?;
 
-            Ok(ErikPartition {
-                partition_time,
-                manifest_refs,
+                    Ok(ErikPartition {
+                        partition_time,
+                        manifest_refs,
+                    })
+                })
             })
-        })
+            .map_err(|err| err.convert())
     }
 }
 
@@ -345,11 +361,18 @@ impl From<&ErikPartition> for ErikPartitionEncoder {
 impl ErikPartitionEncoder {
     /// Returns a value encoder for a reference to the manifest.
     pub fn encode(&self) -> impl encode::Values {
-        encode::sequence((
-            self.partition_time.encode_generalized_time(),
-            DigestAlgorithm::sha256().encode(),
-            encode::sequence(&self.manifest_refs),
-        ))
+        let content = encode::sequence_as(
+            Tag::CTX_0,
+            OctetString::encode_wrapped(
+                Mode::Der,
+                encode::sequence((
+                    self.partition_time.encode_generalized_time(),
+                    SHA256.encode(),
+                    encode::sequence(&self.manifest_refs),
+                )),
+            ),
+        );
+        encode::sequence((ERIK_PARTITION_OID.encode_ref(), content))
     }
 
     /// Returns a DER encoded Captured for this.
@@ -403,10 +426,10 @@ impl ManifestRef {
             self.aki.encode(),
             self.manifest_number.encode(),
             self.this_update.encode_generalized_time(),
-            encode::sequence((
+            encode::sequence(encode::sequence((
                 oid::AD_SIGNED_OBJECT.encode(),
                 self.locations.encode_general_name(),
-            )),
+            ))),
         ))
     }
 
@@ -447,11 +470,20 @@ impl ManifestRef {
         cons.take_sequence(|cons| {
             // We have an SIA sequence and expect only 1 entry
             // for the ad_signed_object
-            oid::AD_SIGNED_OBJECT.skip_if(cons)?;
-            cons.take_value_if(Tag::CTX_6, |content| {
-                let string = Ia5String::from_content(content)?;
-                uri::Rsync::from_bytes(string.into_bytes())
-                    .map_err(|_| content.content_err("invalid uri for manifest"))
+            cons.take_sequence(|cons| {
+                oid::AD_SIGNED_OBJECT.skip_if(cons)?;
+                cons.take_value_if(Tag::CTX_6, |content| {
+                    let string = Ia5String::from_content(content)?;
+
+                    // hack - accept URIs without scheme
+                    let mut string = string.to_string();
+                    if !string.starts_with("rsync://") {
+                        string = format!("rsync://{string}");
+                    }
+
+                    uri::Rsync::from_string(string)
+                        .map_err(|_| content.content_err("invalid uri for manifest"))
+                })
             })
         })
     }
@@ -528,10 +560,16 @@ mod tests {
         let partition = erik.partitions.values().next().unwrap();
         let encoder = ErikPartitionEncoder::from(partition);
         let encoded = encoder.to_captured().into_bytes();
-        // let base64 = BASE64_STANDARD.encode(encoded.as_ref());
-        // println!("{base64}");
+        let base64 = BASE64_STANDARD.encode(encoded.as_ref());
+        println!("{base64}");
 
         let _decoded = ErikPartition::decode(encoded).unwrap();
+    }
+
+    #[test]
+    fn erik_partition_decode_draft_05() {
+        let partition_05 = include_bytes!("../test-resources/erik-types/05-partition.der");
+        ErikPartition::decode(partition_05.as_ref()).unwrap();
     }
 
     #[test]
@@ -542,9 +580,7 @@ mod tests {
         let base64 = BASE64_STANDARD.encode(encoded.as_ref());
         println!("{base64}");
 
-        let decoded = Mode::Der
-            .decode(encoded, ErikIndex::take_from)
-            .unwrap();
+        let decoded = Mode::Der.decode(encoded, ErikIndex::take_from).unwrap();
         assert_eq!(encoder, decoded);
     }
 
@@ -552,9 +588,9 @@ mod tests {
     fn erik_index_decode_rfc_example() {
         let input = include_bytes!("../test-resources/erik-types/05-index.der");
         let index = Mode::Der
-            .decode(input.as_ref().into_source(),
-                |cons| ErikIndex::take_from(cons),
-            )
+            .decode(input.as_ref().into_source(), |cons| {
+                ErikIndex::take_from(cons)
+            })
             .unwrap();
         assert_eq!(256, index.partitions.len());
         let encoded = index.encode().to_captured(Mode::Der).into_bytes();
@@ -567,6 +603,7 @@ mod tests {
 
     fn test_index_from_content() -> ResolvedErikIndex {
         let repo_content = RepoContent::create_test().unwrap();
-        ResolvedErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content).unwrap()
+        ResolvedErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content)
+            .unwrap()
     }
 }
