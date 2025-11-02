@@ -12,7 +12,7 @@ use rpki::{
 };
 
 use crate::{
-    erik::ManifestRef,
+    erik::asn1::ManifestRef,
     util::{de_bytes, ser_bytes},
 };
 

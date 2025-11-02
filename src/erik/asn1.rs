@@ -1,10 +1,7 @@
 //! This module contains the Erik Synchronization Data Structure types
 //!
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
@@ -25,7 +22,7 @@ use rpki::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::content::RepoContent;
+use crate::erik;
 
 /// 1.3.6.1.4.1.41948.826
 // Use 'bin/mkoid' in the bcder lib to get the following:
@@ -34,66 +31,6 @@ pub const ERIK_INDEX_OID: Oid<&[u8]> = Oid(&[43, 6, 1, 4, 1, 130, 199, 92, 134, 
 /// 1.3.6.1.4.1.41948.827
 // Use 'bin/mkoid' in the bcder lib to get the following:
 pub const ERIK_PARTITION_OID: Oid<&[u8]> = Oid(&[43, 6, 1, 4, 1, 130, 199, 92, 134, 59]);
-
-/// The Erik Partition key is used to determine
-/// which partition should be used for a ManifestRef
-///
-/// DISCUSS: The draft says this should go up to 1024
-/// but we only go up to 256 here, because it's just
-/// much easier to take the first full byte from the
-/// authority key identifier, rather than the first
-/// 10 bits.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct ErikPartitionKey(u8);
-
-impl From<&ManifestRef> for ErikPartitionKey {
-    fn from(mft_ref: &ManifestRef) -> Self {
-        Self(mft_ref.aki.as_slice()[0])
-    }
-}
-
-/// ErikIndex as defined in section 3 of the draft
-#[derive(Clone, Debug)]
-pub struct ResolvedErikIndex {
-    // version [0]
-    index_scope: String, // FQDN, perhaps we should use a strong type
-    index_time: Time,
-    // hashAlg RSA-256
-    partitions: HashMap<ErikPartitionKey, ErikPartition>,
-}
-
-impl ResolvedErikIndex {
-    /// Creates and ErikIndex from the given content.
-    pub fn from_content(index_scope: String, content: &RepoContent) -> Option<Self> {
-        let mut partitions: HashMap<ErikPartitionKey, ErikPartition> = HashMap::new();
-
-        for mft_ref in content.manifests().values() {
-            let partition_key = ErikPartitionKey::from(mft_ref.as_ref());
-
-            if let Some(partition) = partitions.get_mut(&partition_key) {
-                partition.add_manifest_ref(mft_ref.clone());
-            } else {
-                partitions.insert(
-                    partition_key,
-                    ErikPartition::create_from_manifest_ref(mft_ref.clone()),
-                );
-            }
-        }
-
-        // If partitions is empty we return None, otherwise we find the
-        // most recent partition time among partitions and return Some
-        // ErikIndex using that valid as its index_time.
-        partitions
-            .values()
-            .map(|p| p.partition_time)
-            .max()
-            .map(|max_partition_time| ResolvedErikIndex {
-                index_scope,
-                index_time: max_partition_time,
-                partitions,
-            })
-    }
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErikIndex {
@@ -167,8 +104,8 @@ impl ErikIndex {
     }
 }
 
-impl From<&ResolvedErikIndex> for ErikIndex {
-    fn from(index: &ResolvedErikIndex) -> Self {
+impl From<&erik::ResolvedErikIndex> for ErikIndex {
+    fn from(index: &erik::ResolvedErikIndex) -> Self {
         let mut partitions = vec![];
         for p in index.partitions.values() {
             let part_enc = ErikPartitionEncoder::from(p);
@@ -228,17 +165,17 @@ pub struct ErikPartition {
     // version [0]
     // hashAlg SHA-256
     /// most recent this update among manifests
-    partition_time: Time,
+    pub partition_time: Time,
 
     /// We use an Arc around ManifestRef for cheaper cloning
     /// which we will likely need when we start parsing and
     /// updating structures that own a partition. Note that
     /// ManifestRef is immutable.
-    manifest_refs: HashSet<Arc<ManifestRef>>,
+    pub manifest_refs: HashSet<Arc<ManifestRef>>,
 }
 
 impl ErikPartition {
-    fn create_from_manifest_ref(mft: Arc<ManifestRef>) -> Self {
+    pub fn create_from_manifest_ref(mft: Arc<ManifestRef>) -> Self {
         let partition_time = mft.this_update;
         let mut manifest_refs = HashSet::new();
         manifest_refs.insert(mft);
@@ -249,7 +186,7 @@ impl ErikPartition {
         }
     }
 
-    fn add_manifest_ref(&mut self, mft_ref: Arc<ManifestRef>) {
+    pub fn add_manifest_ref(&mut self, mft_ref: Arc<ManifestRef>) {
         if self.partition_time > mft_ref.this_update {
             self.partition_time = mft_ref.this_update;
         }
@@ -385,15 +322,15 @@ impl ErikPartitionEncoder {
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[allow(dead_code)]
 pub struct ManifestRef {
-    hash: Hash,
-    size: usize,
-    aki: KeyIdentifier,
-    manifest_number: Serial,
-    this_update: Time,
+    pub hash: Hash,
+    pub size: usize,
+    pub aki: KeyIdentifier,
+    pub manifest_number: Serial,
+    pub this_update: Time,
 
     /// For now this is a single URI for the AD_SIGNED_OBJECT
     /// but we may get more access descriptors in future.
-    locations: uri::Rsync,
+    pub locations: uri::Rsync,
 }
 
 impl ManifestRef {
@@ -531,28 +468,12 @@ impl PartialOrd for ManifestRef {
 
 #[cfg(test)]
 mod tests {
-
     use crate::content::RepoContent;
 
     use super::*;
 
     use ::base64::prelude::*;
-    use bytes::Bytes;
     use rpki::dep::bcder::decode::IntoSource;
-
-    #[test]
-    fn manifest_ref_from_manifest() {
-        let manifest_der = include_bytes!("../test-resources/erik-types/manifest.mft");
-        let manifest_bytes = Bytes::from_static(manifest_der);
-        let manifest = Manifest::decode(manifest_bytes.as_ref(), true).unwrap();
-
-        let _manifest_ref = ManifestRef::try_from(&manifest).unwrap();
-    }
-
-    #[test]
-    fn erik_index_from_content() {
-        test_index_from_content();
-    }
 
     #[test]
     fn erik_partition_encode_and_decode() {
@@ -568,7 +489,7 @@ mod tests {
 
     #[test]
     fn erik_partition_decode_draft_05() {
-        let partition_05 = include_bytes!("../test-resources/erik-types/05-partition.der");
+        let partition_05 = include_bytes!("../../test-resources/erik-types/05-partition.der");
         ErikPartition::decode(partition_05.as_ref()).unwrap();
     }
 
@@ -586,7 +507,7 @@ mod tests {
 
     #[test]
     fn erik_index_decode_rfc_example() {
-        let input = include_bytes!("../test-resources/erik-types/05-index.der");
+        let input = include_bytes!("../../test-resources/erik-types/05-index.der");
         let index = Mode::Der
             .decode(input.as_ref().into_source(), |cons| {
                 ErikIndex::take_from(cons)
@@ -601,9 +522,9 @@ mod tests {
         println!("{base64}");
     }
 
-    fn test_index_from_content() -> ResolvedErikIndex {
+    fn test_index_from_content() -> erik::ResolvedErikIndex {
         let repo_content = RepoContent::create_test().unwrap();
-        ResolvedErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content)
+        erik::ResolvedErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content)
             .unwrap()
     }
 }
