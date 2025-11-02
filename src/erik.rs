@@ -27,8 +27,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::content::RepoContent;
 
-// See: https://misc.daniel-marschall.de/asn.1/oid-converter/online.php
-// 1.3.6.1.4.1.41948.826 => 06 0A 2B 06 01 04 01 82 C7 5C 86 3A
+/// 1.3.6.1.4.1.41948.826
+// Use 'bin/mkoid' in the bcder lib to get the following:
 pub const ERIK_INDEX_OID: Oid<&[u8]> = Oid(&[43, 6, 1, 4, 1, 130, 199, 92, 134, 58]);
 
 /// 1.3.6.1.4.1.41948.827
