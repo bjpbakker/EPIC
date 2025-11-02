@@ -50,7 +50,6 @@ impl From<&ManifestRef> for ErikPartitionKey {
 
 /// ErikIndex as defined in section 3 of the draft
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct ResolvedErikIndex {
     // version [0]
     index_scope: String, // FQDN, perhaps we should use a strong type
@@ -92,8 +91,7 @@ impl ResolvedErikIndex {
     }
 }
 
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErikIndex {
     index_scope: Ia5String,
     index_time: Time,
@@ -547,6 +545,7 @@ mod tests {
         let decoded = Mode::Der
             .decode(encoded, ErikIndex::take_from)
             .unwrap();
+        assert_eq!(encoder, decoded);
     }
 
     #[test]
