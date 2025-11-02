@@ -12,6 +12,7 @@ use rpki::{
     crypto::{DigestAlgorithm, KeyIdentifier},
     dep::bcder::{
         Captured, Ia5String, Mode, OctetString, Oid, Tag,
+        decode::{self, DecodeError, IntoSource, Source},
         encode::{self, PrimitiveContent, Values},
     },
     oid::{self, SHA256},
@@ -249,6 +250,44 @@ impl ErikPartition {
     }
 }
 
+// - Decode
+impl ErikPartition {
+    /// Decodes an ErikPartition from a source.
+    #[allow(clippy::redundant_closure)]
+    pub fn decode<S: IntoSource>(
+        source: S,
+    ) -> Result<Self, DecodeError<<S::Source as Source>::Error>> {
+        Mode::Der.decode(source.into_source(), Self::take_from)
+    }
+
+    /// Takes an ErikPartition from a constructed value
+    pub fn take_from<S: decode::Source>(
+        cons: &mut decode::Constructed<S>,
+    ) -> Result<Self, DecodeError<S::Error>> {
+        cons.take_sequence(|cons| {
+            let partition_time = Time::take_from(cons)?;
+            let alg = DigestAlgorithm::take_from(cons)?;
+            if alg != DigestAlgorithm::sha256() {
+                return Err(cons.content_err("Wrong digest algorithm"));
+            }
+
+            let mut manifest_refs = HashSet::new();
+
+            cons.take_sequence(|cons| {
+                while let Some(entry) = ManifestRef::take_opt_from(cons)? {
+                    manifest_refs.insert(Arc::new(entry));
+                }
+                Ok(())
+            })?;
+
+            Ok(ErikPartition {
+                partition_time,
+                manifest_refs,
+            })
+        })
+    }
+}
+
 /// ErikPartitionEncoder
 ///
 /// This type is introduced because of lifetime and typing
@@ -367,6 +406,52 @@ impl ManifestRef {
             )),
         ))
     }
+
+    /// Takes a ManifestRef from a constructed value
+    pub fn take_opt_from<S: decode::Source>(
+        cons: &mut decode::Constructed<S>,
+    ) -> Result<Option<Self>, DecodeError<S::Error>> {
+        cons.take_opt_sequence(|cons| {
+            let hash = {
+                let octets = OctetString::take_from(cons)?.into_bytes();
+                Hash::try_from(octets.as_ref()).map_err(|_| cons.content_err("invalid hash"))?
+            };
+            let size = cons.take_u32()? as usize; // Will error out on sizes > 4GB
+            let aki = KeyIdentifier::take_from(cons)?;
+            let manifest_number = Serial::take_from(cons)?;
+            let this_update = Time::take_from(cons)?;
+
+            let locations = Self::take_locations(cons)?;
+
+            Ok(ManifestRef {
+                hash,
+                size,
+                aki,
+                manifest_number,
+                this_update,
+                locations,
+            })
+        })
+    }
+
+    /// Take the locations value from a constructed value
+    pub fn take_locations<S: decode::Source>(
+        cons: &mut decode::Constructed<S>,
+    ) -> Result<uri::Rsync, DecodeError<S::Error>> {
+        // Coded after how the SIA is parsed in Cert in rpki-rs.
+        // Re-using the code directly was not possible, because
+        // the relevant functions are not public.
+        cons.take_sequence(|cons| {
+            // We have an SIA sequence and expect only 1 entry
+            // for the ad_signed_object
+            oid::AD_SIGNED_OBJECT.skip_if(cons)?;
+            cons.take_value_if(Tag::CTX_6, |content| {
+                let string = Ia5String::from_content(content)?;
+                uri::Rsync::from_bytes(string.into_bytes())
+                    .map_err(|_| content.content_err("invalid uri for manifest"))
+            })
+        })
+    }
 }
 
 impl TryFrom<&Manifest> for ManifestRef {
@@ -434,11 +519,15 @@ mod tests {
     }
 
     #[test]
-    fn erik_partition_encode() {
+    fn erik_partition_encode_and_decode() {
         let erik = test_index_from_content();
         let partition = erik.partitions.values().next().unwrap();
         let encoder = ErikPartitionEncoder::from(partition);
-        encoder.to_captured();
+        let encoded = encoder.to_captured().into_bytes();
+        // let base64 = BASE64_STANDARD.encode(encoded.as_ref());
+        // println!("{base64}");
+
+        let _decoded = ErikPartition::decode(encoded).unwrap();
     }
 
     #[test]
