@@ -104,8 +104,8 @@ impl ErikIndex {
     }
 }
 
-impl From<&erik::ResolvedErikIndex> for ErikIndex {
-    fn from(index: &erik::ResolvedErikIndex) -> Self {
+impl From<&erik::state::ResolvedErikIndex> for ErikIndex {
+    fn from(index: &erik::state::ResolvedErikIndex) -> Self {
         let mut partitions = vec![];
         for p in index.partitions.values() {
             let part_enc = ErikPartitionEncoder::from(p);
@@ -522,9 +522,9 @@ mod tests {
         println!("{base64}");
     }
 
-    fn test_index_from_content() -> erik::ResolvedErikIndex {
+    fn test_index_from_content() -> erik::state::ResolvedErikIndex {
         let repo_content = RepoContent::create_test().unwrap();
-        erik::ResolvedErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content)
+        erik::state::ResolvedErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content)
             .unwrap()
     }
 }
