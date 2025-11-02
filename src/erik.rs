@@ -11,7 +11,7 @@ use bytes::Bytes;
 use rpki::{
     crypto::{DigestAlgorithm, KeyIdentifier},
     dep::bcder::{
-        Captured, Ia5String, Integer, Mode, OctetString, Oid, Tag,
+        Captured, Ia5String, Mode, OctetString, Oid, Tag,
         decode::{self, DecodeError, IntoSource, Source},
         encode::{self, PrimitiveContent, Values},
     },
@@ -51,7 +51,7 @@ impl From<&ManifestRef> for ErikPartitionKey {
 /// ErikIndex as defined in section 3 of the draft
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub struct ErikIndex {
+pub struct ResolvedErikIndex {
     // version [0]
     index_scope: String, // FQDN, perhaps we should use a strong type
     index_time: Time,
@@ -59,7 +59,7 @@ pub struct ErikIndex {
     partitions: HashMap<ErikPartitionKey, ErikPartition>,
 }
 
-impl ErikIndex {
+impl ResolvedErikIndex {
     /// Creates and ErikIndex from the given content.
     pub fn from_content(index_scope: String, content: &RepoContent) -> Option<Self> {
         let mut partitions: HashMap<ErikPartitionKey, ErikPartition> = HashMap::new();
@@ -84,7 +84,7 @@ impl ErikIndex {
             .values()
             .map(|p| p.partition_time)
             .max()
-            .map(|max_partition_time| ErikIndex {
+            .map(|max_partition_time| ResolvedErikIndex {
                 index_scope,
                 index_time: max_partition_time,
                 partitions,
@@ -92,39 +92,17 @@ impl ErikIndex {
     }
 }
 
-/// ErikIndexEncoder
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub struct ErikIndexEncoder {
-    content: ErikIndexContentEncoder,
-}
-
-impl ErikIndexEncoder {
-    pub fn encode(&self) -> impl encode::Values {
-        encode::sequence((ERIK_INDEX_OID.encode_ref(), self.content.encode()))
-    }
-}
-
-impl From<&ErikIndex> for ErikIndexEncoder {
-    fn from(index: &ErikIndex) -> Self {
-        let content = ErikIndexContentEncoder::from(index);
-
-        ErikIndexEncoder { content }
-    }
-}
-
-/// ErikIndexContentEncoder
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct ErikIndexContentEncoder {
+pub struct ErikIndex {
     index_scope: Ia5String,
     index_time: Time,
     partitions: Vec<ErikPartitionRef>,
 }
 
-impl ErikIndexContentEncoder {
+impl ErikIndex {
     pub fn encode(&self) -> impl encode::Values {
-        encode::sequence_as(
+        let content =         encode::sequence_as(
             Tag::CTX_0,
             OctetString::encode_wrapped(
                 Mode::Der,
@@ -136,48 +114,10 @@ impl ErikIndexContentEncoder {
                     encode::sequence(encode::iter(self.partitions.iter().map(|p| p.encode()))),
                 )),
             ),
-        )
+        );
+        encode::sequence((ERIK_INDEX_OID.encode_ref(), content))
     }
-}
 
-impl From<&DecodedErikIndex> for ErikIndexContentEncoder {
-    fn from(index: &DecodedErikIndex) -> Self {
-        ErikIndexContentEncoder {
-            index_scope: index.index_scope.clone(),
-            index_time: index.index_time,
-            partitions: index.partitions.clone(),
-        }
-    }
-}
-
-impl From<&ErikIndex> for ErikIndexContentEncoder {
-    fn from(index: &ErikIndex) -> Self {
-        let mut partitions = vec![];
-        for p in index.partitions.values() {
-            let part_enc = ErikPartitionEncoder::from(p);
-            let bytes = part_enc.to_captured().into_bytes();
-            let erik_part_ref = ErikPartitionRef::new(&bytes);
-            partitions.push(erik_part_ref);
-        }
-        partitions.sort();
-
-        ErikIndexContentEncoder {
-            index_scope: Ia5String::from_string(index.index_scope.clone()).unwrap(),
-            index_time: index.index_time,
-            partitions,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct DecodedErikIndex {
-    index_scope: Ia5String,
-    index_time: Time,
-    partitions: Vec<ErikPartitionRef>,
-}
-
-impl DecodedErikIndex {
     pub fn take_from<S: decode::Source>(
         cons: &mut decode::Constructed<S>,
     ) -> Result<Self, DecodeError<S::Error>> {
@@ -214,7 +154,7 @@ impl DecodedErikIndex {
                         }
                         Ok(partitions)
                     })?;
-                    Ok(DecodedErikIndex {
+                    Ok(ErikIndex {
                         index_scope,
                         index_time,
                         partitions,
@@ -222,6 +162,25 @@ impl DecodedErikIndex {
                 })
             })
             .map_err(|err| err.convert())
+    }
+}
+
+impl From<&ResolvedErikIndex> for ErikIndex {
+    fn from(index: &ResolvedErikIndex) -> Self {
+        let mut partitions = vec![];
+        for p in index.partitions.values() {
+            let part_enc = ErikPartitionEncoder::from(p);
+            let bytes = part_enc.to_captured().into_bytes();
+            let erik_part_ref = ErikPartitionRef::new(&bytes);
+            partitions.push(erik_part_ref);
+        }
+        partitions.sort();
+
+        ErikIndex {
+            index_scope: Ia5String::from_string(index.index_scope.clone()).unwrap(),
+            index_time: index.index_time,
+            partitions,
+        }
     }
 }
 
@@ -580,13 +539,13 @@ mod tests {
     #[test]
     fn erik_index_encode() {
         let erik = test_index_from_content();
-        let encoder = ErikIndexEncoder::from(&erik);
+        let encoder = ErikIndex::from(&erik);
         let encoded = encoder.encode().to_captured(Mode::Der).into_bytes();
         let base64 = BASE64_STANDARD.encode(encoded.as_ref());
         println!("{base64}");
 
         let decoded = Mode::Der
-            .decode(encoded, DecodedErikIndex::take_from)
+            .decode(encoded, ErikIndex::take_from)
             .unwrap();
     }
 
@@ -595,14 +554,11 @@ mod tests {
         let input = include_bytes!("../test-resources/erik-types/05-index.der");
         let index = Mode::Der
             .decode(input.as_ref().into_source(),
-                |cons| DecodedErikIndex::take_from(cons),
+                |cons| ErikIndex::take_from(cons),
             )
             .unwrap();
         assert_eq!(256, index.partitions.len());
-        let encoder = ErikIndexEncoder {
-            content: ErikIndexContentEncoder::from(&index),
-        };
-        let encoded = encoder.encode().to_captured(Mode::Der).into_bytes();
+        let encoded = index.encode().to_captured(Mode::Der).into_bytes();
         // This does not yet work as the 05 draft example includes the partition identifier field.
         // The idenfiier is skipped (when present) during decoding, but is not added back in with encoding.
         //assert_eq!(Bytes::from(input.as_slice()), encoded);
@@ -610,8 +566,8 @@ mod tests {
         println!("{base64}");
     }
 
-    fn test_index_from_content() -> ErikIndex {
+    fn test_index_from_content() -> ResolvedErikIndex {
         let repo_content = RepoContent::create_test().unwrap();
-        ErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content).unwrap()
+        ResolvedErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content).unwrap()
     }
 }
