@@ -7,7 +7,7 @@ use structopt::clap::{crate_name, crate_version};
 
 use rpki::uri::Https;
 
-use crate::fetch::{FetchMap, FetchMode, FetchSource, Fetcher};
+use crate::fetch::fetch::{FetchMap, FetchMode, FetchSource, Fetcher};
 
 pub const DELTA_FNAME: &str = "delta.xml";
 pub const NOTIFICATION_FNAME: &str = "notification.xml";

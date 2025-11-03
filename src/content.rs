@@ -130,7 +130,7 @@ impl RepoContent {
 
 #[cfg(test)]
 mod tests {
-    use crate::rrdp::RrdpState;
+    use crate::fetch::rrdp::RrdpState;
 
     use super::*;
 

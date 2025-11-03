@@ -20,7 +20,7 @@ use rpki::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{config, file_ops};
+use crate::{config, fetch::file_ops};
 
 //------------ FetchResponse -------------------------------------------------
 pub enum FetchResponse {
