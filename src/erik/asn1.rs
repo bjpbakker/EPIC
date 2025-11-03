@@ -410,15 +410,7 @@ impl ManifestRef {
             cons.take_sequence(|cons| {
                 oid::AD_SIGNED_OBJECT.skip_if(cons)?;
                 cons.take_value_if(Tag::CTX_6, |content| {
-                    let string = Ia5String::from_content(content)?;
-
-                    // hack - accept URIs without scheme
-                    let mut string = string.to_string();
-                    if !string.starts_with("rsync://") {
-                        string = format!("rsync://{string}");
-                    }
-
-                    uri::Rsync::from_string(string)
+                    uri::Rsync::from_bytes(Ia5String::from_content(content)?.to_bytes())
                         .map_err(|_| content.content_err("invalid uri for manifest"))
                 })
             })
@@ -524,7 +516,10 @@ mod tests {
 
     fn test_index_from_content() -> erik::state::ResolvedErikIndex {
         let repo_content = RepoContent::create_test().unwrap();
-        erik::state::ResolvedErikIndex::from_content("krill-ui-dev.do.nlnetlabs.nl".to_string(), &repo_content)
-            .unwrap()
+        erik::state::ResolvedErikIndex::from_content(
+            "krill-ui-dev.do.nlnetlabs.nl".to_string(),
+            &repo_content,
+        )
+        .unwrap()
     }
 }
