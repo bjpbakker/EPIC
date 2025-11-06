@@ -2,19 +2,108 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 use rpki::{
     repository::Manifest,
-    rrdp::{Hash, Snapshot},
+    rrdp::{self, Hash, NotificationFile, Snapshot},
+    uri,
 };
+use uuid::Uuid;
 
 use crate::{
     erik::asn1::ManifestRef,
+    fetch::retrieval::FetchMapper,
     util::{de_bytes, ser_bytes},
 };
+
+/// Gets content from an RRDP source. Fully trusts the
+/// RRDP source to be complete and reliable with regards
+/// to withdraws and updates.
+///
+/// Intended for use with a trusted local RRDP repository
+/// as input.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct RrdpState {
+    /// The RRDP notify URI and mapping.
+    notify: uri::Https,
+
+    /// The mapper that can be used to retrieve RRDP xml files.
+    fetch_mapper: FetchMapper,
+
+    /// The RRDP session of this snapshot.
+    session_id: Uuid,
+
+    /// The serial number of the update of this snapshot.
+    serial: u64,
+
+    /// All current elements
+    elements: HashMap<Hash, Arc<RepoContentElement>>,
+
+    /// All current manifest references. Derived and updated
+    /// whenever the elements are updated.
+    manifests: HashMap<Hash, Arc<ManifestRef>>,
+}
+
+impl RrdpState {
+    /// Create a new state for the given RRDP notify URI
+    /// and mapper. Will fetch and parse the notification
+    /// file and then the snapshot file to create state.
+    ///
+    /// In case of trouble this errors out as one might
+    /// expect.
+    pub fn create(notify: uri::Https, fetch_mapper: FetchMapper) -> anyhow::Result<Self> {
+        let notification_bytes = fetch_mapper
+            .resolve(notify.clone())
+            .fetch(None)?
+            .try_into_data()?;
+
+        let notification = NotificationFile::parse(notification_bytes.as_ref())
+            .with_context(|| "Failed to parse notification file")?;
+
+        let session_id = notification.session_id();
+        let serial = notification.serial();
+
+        let snapshot_bytes = fetch_mapper
+            .resolve(notification.snapshot().uri().clone())
+            .fetch(None)?
+            .try_into_data()?;
+
+        let snapshot = Snapshot::parse(snapshot_bytes.as_ref())?;
+
+        let elements: HashMap<Hash, Arc<RepoContentElement>> = snapshot
+            .into_elements()
+            .into_iter()
+            .map(|el| {
+                (
+                    rrdp::Hash::from_data(el.data()),
+                    Arc::new(RepoContentElement::from(el)),
+                )
+            })
+            .collect();
+
+        let manifests = elements
+            .iter()
+            .flat_map(|(hash, rce)| {
+                rce.try_manifest_ref(true)
+                    .ok()
+                    .map(|mft_ref| (*hash, Arc::new(mft_ref)))
+            })
+            .collect();
+
+        Ok(Self {
+            notify,
+            fetch_mapper,
+            session_id,
+            serial,
+            elements,
+            manifests,
+        })
+    }
+}
 
 /// This type contains a current element in a repository
 #[derive(Debug, Deserialize, Serialize)]
@@ -82,7 +171,7 @@ impl RepoContent {
     /// To do: make this #[cfg[test]] when we have real content fetching in place
     pub fn create_test() -> anyhow::Result<Self> {
         let test_snapshot_file = include_bytes!(
-            "../../test-resources/rrdp-rev2656/e9be21e7-c537-4564-b742-64700978c6b4/2656/snapshot.xml"
+            "../../test-resources/rrdp-rev2656/rrdp/e9be21e7-c537-4564-b742-64700978c6b4/2656/snapshot.xml"
         );
         let test_snapshot_bytes = Bytes::from_static(test_snapshot_file);
 
@@ -130,7 +219,26 @@ impl RepoContent {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use crate::util::https;
+
     use super::*;
+
+    #[test]
+    fn create_rrdp_state() {
+        let notification_uri = https("https://krill-ui-dev.do.nlnetlabs.nl/rrdp/notification.xml");
+        let mut mapper = FetchMapper::new();
+        mapper.add_disk_mapper(
+            (&notification_uri).into(),
+            PathBuf::from("test-resources/rrdp-rev2656/"),
+        );
+
+        let rrdp_state = RrdpState::create(notification_uri, mapper).unwrap();
+
+        assert!(!rrdp_state.elements.is_empty());
+        assert!(!rrdp_state.manifests.is_empty());
+    }
 
     #[test]
     fn create_repo_content_from_snapshot() {

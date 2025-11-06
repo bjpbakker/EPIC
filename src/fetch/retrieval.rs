@@ -51,7 +51,11 @@ impl FetchMapper {
 
         match self.disk_mappers.get(&fqdn) {
             Some(base_path) => {
-                let path = base_path.join(uri.path());
+                let path = match uri.path().strip_prefix('/') {
+                    Some(rel) => base_path.join(rel),
+                    None => base_path.clone(),
+                };
+
                 ResolvedSource::File(path)
             }
             None => ResolvedSource::Uri(uri),
@@ -134,4 +138,13 @@ impl ResolvedSource {
 pub enum FetchResponse {
     Data { bytes: Bytes, etag: Option<String> },
     UnModified,
+}
+
+impl FetchResponse {
+    pub fn try_into_data(self) -> anyhow::Result<Bytes> {
+        match self {
+            FetchResponse::Data { bytes, .. } => Ok(bytes),
+            _ => Err(anyhow!("No data in response.")),
+        }
+    }
 }
