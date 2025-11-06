@@ -1,10 +1,20 @@
-use std::fmt;
+use std::{fmt, fs::File, io::Read, path::Path};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use bytes::Bytes;
 use chrono::{Local, TimeZone};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
+
+//----------------------------------------------------------------------------
+//------------ File Support --------------------------------------------------
+//----------------------------------------------------------------------------
+pub fn read_file(file_path: &Path) -> anyhow::Result<Bytes> {
+    let mut f = File::open(file_path)?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf)?;
+    Ok(Bytes::from(buf))
+}
 
 //----------------------------------------------------------------------------
 //------------ Time Support --------------------------------------------------
