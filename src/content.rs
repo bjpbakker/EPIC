@@ -130,23 +130,11 @@ impl RepoContent {
 
 #[cfg(test)]
 mod tests {
-    use crate::fetch::rrdp::RrdpState;
-
     use super::*;
-
-    use std::path::PathBuf;
 
     #[test]
     fn create_repo_content_from_snapshot() {
         let content = RepoContent::create_test().unwrap();
         assert!(!content.manifests.is_empty());
-    }
-
-    #[test]
-    fn rrdp_state_deserialize() {
-        let _state = RrdpState::recover(&PathBuf::from(
-            "test-resources/validation/data-lacnic/rrdp-state.json",
-        ))
-        .unwrap();
     }
 }

@@ -14,9 +14,9 @@ use rpki::{
 };
 
 use crate::{
-    config::Config,
-    fetch::fetch::{Fetcher, NotificationFileResponse},
-    fetch::file_ops,
+    to_be_cleaned::config::Config,
+    to_be_cleaned::fetch::{Fetcher, NotificationFileResponse},
+    to_be_cleaned::file_ops,
     util::{self, Time},
 };
 

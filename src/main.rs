@@ -10,10 +10,7 @@ use log::debug;
 use std::vec::Vec;
 use std::{process::exit, sync::Arc};
 
-use bomans::{
-    config::{self},
-    content::RepoContent,
-};
+use bomans::content::RepoContent;
 use rpki::rrdp::Hash;
 
 fn bad_hash(val: String) -> (StatusCode, String) {
@@ -41,8 +38,6 @@ async fn main() {
 }
 
 async fn run() -> anyhow::Result<()> {
-    let _config = config::configure()?;
-
     let repo = Arc::new(RepoContent::create_test()?);
 
     let named_information = async move |Path((alg, val)): Path<(String, String)>| {

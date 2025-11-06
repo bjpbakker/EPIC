@@ -20,7 +20,7 @@ use rpki::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{config, fetch::file_ops};
+use crate::to_be_cleaned::{config, file_ops};
 
 //------------ FetchResponse -------------------------------------------------
 pub enum FetchResponse {
@@ -72,6 +72,8 @@ impl FetchMode {
 }
 
 //------------ FetchSource ---------------------------------------------------
+
+/// A FetchSource is used to
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum FetchSource {
     File(PathBuf),
@@ -232,6 +234,9 @@ impl FromStr for FetchSource {
 
 //------------ FetchMap ------------------------------------------------------
 
+/// This type know how to fetch URIs relative to its base_uri
+/// (scope if you will) from a FetchSource. The FetchSource can
+/// be HTTPs or disk.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FetchMap {
     base_uri: uri::Https,
