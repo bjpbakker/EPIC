@@ -10,7 +10,7 @@ use log::debug;
 use std::vec::Vec;
 use std::{process::exit, sync::Arc};
 
-use bomans::content::RepoContent;
+use bomans::fetch::rrdp::RepoContent;
 use rpki::rrdp::Hash;
 
 fn bad_hash(val: String) -> (StatusCode, String) {

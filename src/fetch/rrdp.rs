@@ -1,4 +1,4 @@
-//! Keep track of the content of an Erik cache.
+//! Fetch content from an RRDP source.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -82,7 +82,7 @@ impl RepoContent {
     /// To do: make this #[cfg[test]] when we have real content fetching in place
     pub fn create_test() -> anyhow::Result<Self> {
         let test_snapshot_file = include_bytes!(
-            "../test-resources/rrdp-rev2656/e9be21e7-c537-4564-b742-64700978c6b4/2656/snapshot.xml"
+            "../../test-resources/rrdp-rev2656/e9be21e7-c537-4564-b742-64700978c6b4/2656/snapshot.xml"
         );
         let test_snapshot_bytes = Bytes::from_static(test_snapshot_file);
 

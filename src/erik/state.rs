@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use rpki::repository::x509::Time;
 
-use crate::content::RepoContent;
 use crate::erik::asn1;
+use crate::fetch::rrdp::RepoContent;
 
 /// The Erik Partition key is used to determine
 /// which partition should be used for a ManifestRef

@@ -460,7 +460,7 @@ impl PartialOrd for ManifestRef {
 
 #[cfg(test)]
 mod tests {
-    use crate::content::RepoContent;
+    use crate::fetch::rrdp::RepoContent;
 
     use super::*;
 
