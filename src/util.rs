@@ -3,6 +3,7 @@ use std::{fmt, fs::File, io::Read, path::Path};
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use bytes::Bytes;
 use chrono::{Local, TimeZone};
+use rpki::dep::bcder::Ia5String;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
@@ -56,6 +57,23 @@ impl From<rpki::repository::x509::Time> for Time {
 //----------------------------------------------------------------------------
 //------------ Serde Support -------------------------------------------------
 //----------------------------------------------------------------------------
+
+//------------ Ia5String -----------------------------------------------------
+
+pub fn de_ia5_string<'de, D>(d: D) -> Result<Ia5String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(d)?;
+    Ia5String::from_string(s).map_err(|_| serde::de::Error::custom("invalid Ia5String"))
+}
+
+pub fn ser_ia5_string<S>(ia5: &Ia5String, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    ia5.to_string().serialize(s)
+}
 
 //------------ Bytes ---------------------------------------------------------
 

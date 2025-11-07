@@ -1,7 +1,7 @@
 //! This module is responsible for all fetching things from disk
 //! or HTTPS, or mapping HTTPS requests to disk for testing.
 
-use std::{collections::HashMap, path::PathBuf, time::Duration};
+use std::{collections::HashMap, path::PathBuf, str::FromStr, time::Duration};
 
 use anyhow::{Context, anyhow};
 use bytes::Bytes;
@@ -19,9 +19,27 @@ pub const USER_AGENT: &str = concat!(crate_name!(), "/", crate_version!());
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Fqdn(String);
 
+impl Fqdn {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
 impl From<&uri::Https> for Fqdn {
     fn from(uri: &uri::Https) -> Self {
         Self(uri.authority().to_ascii_lowercase())
+    }
+}
+
+impl FromStr for Fqdn {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.to_ascii_lowercase()))
     }
 }
 

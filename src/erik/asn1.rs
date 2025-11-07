@@ -22,7 +22,10 @@ use rpki::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::erik;
+use crate::{
+    erik,
+    util::{de_ia5_string, ser_ia5_string},
+};
 
 /// 1.3.6.1.4.1.41948.826
 // Use 'bin/mkoid' in the bcder lib to get the following:
@@ -32,8 +35,9 @@ pub const ERIK_INDEX_OID: Oid<&[u8]> = Oid(&[43, 6, 1, 4, 1, 130, 199, 92, 134, 
 // Use 'bin/mkoid' in the bcder lib to get the following:
 pub const ERIK_PARTITION_OID: Oid<&[u8]> = Oid(&[43, 6, 1, 4, 1, 130, 199, 92, 134, 59]);
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErikIndex {
+    #[serde(serialize_with = "ser_ia5_string", deserialize_with = "de_ia5_string")]
     index_scope: Ia5String,
     index_time: Time,
     partitions: Vec<ErikPartitionRef>,
@@ -57,7 +61,13 @@ impl ErikIndex {
         encode::sequence((ERIK_INDEX_OID.encode_ref(), content))
     }
 
-    pub fn take_from<S: decode::Source>(
+    pub fn decode<S: IntoSource>(
+        source: S,
+    ) -> Result<Self, DecodeError<<S::Source as Source>::Error>> {
+        Mode::Der.decode(source.into_source(), Self::take_from)
+    }
+
+    fn take_from<S: decode::Source>(
         cons: &mut decode::Constructed<S>,
     ) -> Result<Self, DecodeError<S::Error>> {
         let content: OctetString = cons.take_sequence(|cons| {
@@ -124,7 +134,7 @@ impl From<&erik::state::ResolvedErikIndex> for ErikIndex {
 }
 
 /// ErikPartitionRef as defined in section 3 of the draft.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[allow(dead_code)]
 pub struct ErikPartitionRef {
     hash: Hash,
@@ -197,7 +207,6 @@ impl ErikPartition {
 // - Decode
 impl ErikPartition {
     /// Decodes an ErikPartition from a source.
-    #[allow(clippy::redundant_closure)]
     pub fn decode<S: IntoSource>(
         source: S,
     ) -> Result<Self, DecodeError<<S::Source as Source>::Error>> {
@@ -465,7 +474,6 @@ mod tests {
     use super::*;
 
     use ::base64::prelude::*;
-    use rpki::dep::bcder::decode::IntoSource;
 
     #[test]
     fn erik_partition_encode_and_decode() {
@@ -500,11 +508,8 @@ mod tests {
     #[test]
     fn erik_index_decode_rfc_example() {
         let input = include_bytes!("../../test-resources/erik-types/05-index.der");
-        let index = Mode::Der
-            .decode(input.as_ref().into_source(), |cons| {
-                ErikIndex::take_from(cons)
-            })
-            .unwrap();
+        let index = ErikIndex::decode(input.as_ref()).unwrap();
+
         assert_eq!(256, index.partitions.len());
         let encoded = index.encode().to_captured(Mode::Der).into_bytes();
         // This does not yet work as the 05 draft example includes the partition identifier field.
