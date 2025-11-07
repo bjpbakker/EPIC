@@ -169,7 +169,7 @@ impl PartialOrd for ErikPartitionRef {
 }
 
 /// ErikPartition as defined in section 3 of the draft.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[allow(dead_code)]
 pub struct ErikPartition {
     // version [0]
