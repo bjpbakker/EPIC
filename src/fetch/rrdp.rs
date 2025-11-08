@@ -15,9 +15,31 @@ use uuid::Uuid;
 
 use crate::{
     erik::asn1::ManifestRef,
-    fetch::retrieval::FetchMapper,
+    fetch::retrieval::{FetchMapper, FetchResponse},
     util::{de_bytes, ser_bytes},
 };
+
+type Etag = Option<String>;
+
+enum NotificationResponse {
+    UnModified,
+    Notification {
+        etag: Etag,
+        notification_file: NotificationFile,
+    },
+}
+
+impl NotificationResponse {
+    fn try_into_etag_and_file(self) -> anyhow::Result<(Etag, NotificationFile)> {
+        match self {
+            NotificationResponse::UnModified => Err(anyhow!("Notification file was unmodified")),
+            NotificationResponse::Notification {
+                etag,
+                notification_file,
+            } => Ok((etag, notification_file)),
+        }
+    }
+}
 
 /// Gets content from an RRDP source. Fully trusts the
 /// RRDP source to be complete and reliable with regards
@@ -40,6 +62,9 @@ pub struct RrdpState {
     /// The serial number of the update of this snapshot.
     serial: u64,
 
+    /// Last seen eTag
+    etag: Etag,
+
     /// All current elements
     elements: HashMap<Hash, Arc<RepoContentElement>>,
 
@@ -56,7 +81,8 @@ impl RrdpState {
     /// In case of trouble this errors out as one might
     /// expect.
     pub fn create(notify: uri::Https, fetch_mapper: FetchMapper) -> anyhow::Result<Self> {
-        let notification = Self::get_notification_file(&notify, &fetch_mapper)?;
+        let (etag, notification) =
+            Self::get_notification_file(&notify, &None, &fetch_mapper)?.try_into_etag_and_file()?;
         let session_id = notification.session_id();
         let serial = notification.serial();
 
@@ -70,6 +96,7 @@ impl RrdpState {
             fetch_mapper,
             session_id,
             serial,
+            etag,
             elements,
             manifests,
         })
@@ -77,15 +104,21 @@ impl RrdpState {
 
     fn get_notification_file(
         notify: &uri::Https,
+        etag: &Etag,
         fetch_mapper: &FetchMapper,
-    ) -> anyhow::Result<NotificationFile> {
-        let notification_bytes = fetch_mapper
-            .resolve(notify.clone())
-            .fetch(None)?
-            .try_into_data()?;
+    ) -> anyhow::Result<NotificationResponse> {
+        match fetch_mapper.resolve(notify.clone()).fetch(etag.as_ref())? {
+            FetchResponse::Data { bytes, etag } => {
+                let notification_file = NotificationFile::parse(bytes.as_ref())
+                    .with_context(|| "Failed to parse notification file")?;
 
-        NotificationFile::parse(notification_bytes.as_ref())
-            .with_context(|| "Failed to parse notification file")
+                Ok(NotificationResponse::Notification {
+                    notification_file,
+                    etag,
+                })
+            }
+            FetchResponse::UnModified => Ok(NotificationResponse::UnModified),
+        }
     }
 
     fn get_snapshot_file(

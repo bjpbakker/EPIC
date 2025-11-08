@@ -159,6 +159,12 @@ pub enum FetchResponse {
 }
 
 impl FetchResponse {
+    pub fn etag(&self) -> Option<String> {
+        match &self {
+            FetchResponse::Data { etag, .. } => etag.clone(),
+            FetchResponse::UnModified => None,
+        }
+    }
     pub fn try_into_data(self) -> anyhow::Result<Bytes> {
         match self {
             FetchResponse::Data { bytes, .. } => Ok(bytes),
