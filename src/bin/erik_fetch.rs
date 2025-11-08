@@ -4,7 +4,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rpki::{rrdp, uri};
 use structopt::StructOpt;
 
-use bomans::{
+use epic::{
     erik::asn1::{ErikIndex, ErikPartition},
     fetch::retrieval::{FetchMapper, Fqdn},
 };
