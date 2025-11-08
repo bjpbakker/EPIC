@@ -21,7 +21,7 @@ use crate::{
 
 type Etag = Option<String>;
 
-enum NotificationResponse {
+enum NotificationFileResponse {
     UnModified,
     Notification {
         etag: Etag,
@@ -29,11 +29,13 @@ enum NotificationResponse {
     },
 }
 
-impl NotificationResponse {
+impl NotificationFileResponse {
     fn try_into_etag_and_file(self) -> anyhow::Result<(Etag, NotificationFile)> {
         match self {
-            NotificationResponse::UnModified => Err(anyhow!("Notification file was unmodified")),
-            NotificationResponse::Notification {
+            NotificationFileResponse::UnModified => {
+                Err(anyhow!("Notification file was unmodified"))
+            }
+            NotificationFileResponse::Notification {
                 etag,
                 notification_file,
             } => Ok((etag, notification_file)),
@@ -62,7 +64,7 @@ pub struct RrdpState {
     /// The serial number of the update of this snapshot.
     serial: u64,
 
-    /// Last seen eTag
+    /// Last seen ETag
     etag: Etag,
 
     /// All current elements
@@ -83,6 +85,7 @@ impl RrdpState {
     pub fn create(notify: uri::Https, fetch_mapper: FetchMapper) -> anyhow::Result<Self> {
         let (etag, notification) =
             Self::get_notification_file(&notify, &None, &fetch_mapper)?.try_into_etag_and_file()?;
+
         let session_id = notification.session_id();
         let serial = notification.serial();
 
@@ -106,18 +109,18 @@ impl RrdpState {
         notify: &uri::Https,
         etag: &Etag,
         fetch_mapper: &FetchMapper,
-    ) -> anyhow::Result<NotificationResponse> {
+    ) -> anyhow::Result<NotificationFileResponse> {
         match fetch_mapper.resolve(notify.clone()).fetch(etag.as_ref())? {
             FetchResponse::Data { bytes, etag } => {
                 let notification_file = NotificationFile::parse(bytes.as_ref())
                     .with_context(|| "Failed to parse notification file")?;
 
-                Ok(NotificationResponse::Notification {
+                Ok(NotificationFileResponse::Notification {
                     notification_file,
                     etag,
                 })
             }
-            FetchResponse::UnModified => Ok(NotificationResponse::UnModified),
+            FetchResponse::UnModified => Ok(NotificationFileResponse::UnModified),
         }
     }
 
