@@ -56,43 +56,14 @@ impl RrdpState {
     /// In case of trouble this errors out as one might
     /// expect.
     pub fn create(notify: uri::Https, fetch_mapper: FetchMapper) -> anyhow::Result<Self> {
-        let notification_bytes = fetch_mapper
-            .resolve(notify.clone())
-            .fetch(None)?
-            .try_into_data()?;
-
-        let notification = NotificationFile::parse(notification_bytes.as_ref())
-            .with_context(|| "Failed to parse notification file")?;
-
+        let notification = Self::get_notification_file(&notify, &fetch_mapper)?;
         let session_id = notification.session_id();
         let serial = notification.serial();
 
-        let snapshot_bytes = fetch_mapper
-            .resolve(notification.snapshot().uri().clone())
-            .fetch(None)?
-            .try_into_data()?;
+        let snapshot = Self::get_snapshot_file(notification.snapshot().uri(), &fetch_mapper)?;
+        let elements = Self::elements_from_snapshot(snapshot);
 
-        let snapshot = Snapshot::parse(snapshot_bytes.as_ref())?;
-
-        let elements: HashMap<Hash, Arc<RepoContentElement>> = snapshot
-            .into_elements()
-            .into_iter()
-            .map(|el| {
-                (
-                    rrdp::Hash::from_data(el.data()),
-                    Arc::new(RepoContentElement::from(el)),
-                )
-            })
-            .collect();
-
-        let manifests = elements
-            .iter()
-            .flat_map(|(hash, rce)| {
-                rce.try_manifest_ref(true)
-                    .ok()
-                    .map(|mft_ref| (*hash, Arc::new(mft_ref)))
-            })
-            .collect();
+        let manifests = Self::manifests_from_elements(&elements);
 
         Ok(Self {
             notify,
@@ -102,6 +73,57 @@ impl RrdpState {
             elements,
             manifests,
         })
+    }
+
+    fn get_notification_file(
+        notify: &uri::Https,
+        fetch_mapper: &FetchMapper,
+    ) -> anyhow::Result<NotificationFile> {
+        let notification_bytes = fetch_mapper
+            .resolve(notify.clone())
+            .fetch(None)?
+            .try_into_data()?;
+
+        NotificationFile::parse(notification_bytes.as_ref())
+            .with_context(|| "Failed to parse notification file")
+    }
+
+    fn get_snapshot_file(
+        snapshot_uri: &uri::Https,
+        fetch_mapper: &FetchMapper,
+    ) -> anyhow::Result<Snapshot> {
+        let snapshot_bytes = fetch_mapper
+            .resolve(snapshot_uri.clone())
+            .fetch(None)?
+            .try_into_data()?;
+
+        Snapshot::parse(snapshot_bytes.as_ref()).with_context(|| "Failed to parse snapshot file")
+    }
+
+    fn elements_from_snapshot(snapshot: Snapshot) -> HashMap<Hash, Arc<RepoContentElement>> {
+        snapshot
+            .into_elements()
+            .into_iter()
+            .map(|el| {
+                (
+                    rrdp::Hash::from_data(el.data()),
+                    Arc::new(RepoContentElement::from(el)),
+                )
+            })
+            .collect()
+    }
+
+    fn manifests_from_elements(
+        elements: &HashMap<Hash, Arc<RepoContentElement>>,
+    ) -> HashMap<Hash, Arc<ManifestRef>> {
+        elements
+            .iter()
+            .flat_map(|(hash, rce)| {
+                rce.try_manifest_ref(true)
+                    .ok()
+                    .map(|mft_ref| (*hash, Arc::new(mft_ref)))
+            })
+            .collect()
     }
 }
 
