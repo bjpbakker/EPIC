@@ -19,7 +19,7 @@ fn main() {
 fn try_main() -> Result<(), anyhow::Error> {
     let opts = Opt::from_args();
 
-    let fetch_mapper = FetchMapper::new();
+    let fetch_mapper = FetchMapper::empty();
     let uri = match opts.mode {
         Mode::Index => opts
             .server

@@ -48,13 +48,13 @@ impl FromStr for Fqdn {
 /// Contains 0 or more DiskMappers that know how to map
 /// matching URIs to a location on disk. If there is no
 /// applicable mapper then the URI will be used as is.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct FetchMapper {
     disk_mappers: HashMap<Fqdn, PathBuf>,
 }
 
 impl FetchMapper {
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         FetchMapper {
             disk_mappers: HashMap::new(),
         }

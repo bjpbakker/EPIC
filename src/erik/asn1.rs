@@ -143,7 +143,7 @@ pub struct ErikPartitionRef {
 
 impl ErikPartitionRef {
     pub fn new(partition_bytes: &Bytes) -> Self {
-        let hash = Hash::from_data(&partition_bytes);
+        let hash = Hash::from_data(partition_bytes);
         let size = partition_bytes.len() as u32;
 
         ErikPartitionRef { hash, size }
