@@ -5,19 +5,20 @@ use rpki::repository::x509::Time;
 use crate::erik::asn1;
 use crate::fetch::rrdp::RepoContent;
 
-/// The Erik Partition key is used to determine
-/// which partition should be used for a ManifestRef
-///
-/// DISCUSS: The draft says this should go up to 1024
-/// but we only go up to 256 here, because it's just
-/// much easier to take the first full byte from the
-/// authority key identifier, rather than the first
-/// 10 bits.
+/// This key determines which partition is used for a ManifestRef.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ErikPartitionKey(u8);
 
 impl From<&asn1::ManifestRef> for ErikPartitionKey {
     fn from(mft_ref: &asn1::ManifestRef) -> Self {
+        // The strategy implemented here is to use the first byte of the AKI.
+        // This has the advantage that an updated manifest for a given CA
+        // certificate will end up in the same partition as the previous
+        // manifest. In other words, it would result in updating one partition
+        // only, rather than two.
+        //
+        // Note that the KeyIdentifier is guaranteed to be 20 bytes long,
+        // so taking the first byte can never panic.
         Self(mft_ref.aki.as_slice()[0])
     }
 }
