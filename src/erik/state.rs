@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use rpki::repository::x509::Time;
 
+use crate::content::RepoContent;
 use crate::erik::asn1;
-use crate::fetch::rrdp::RepoContent;
 
 /// This key determines which partition is used for a ManifestRef.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

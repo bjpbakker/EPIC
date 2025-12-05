@@ -10,7 +10,7 @@ use log::debug;
 use std::vec::Vec;
 use std::{process::exit, sync::Arc};
 
-use epic::fetch::rrdp::RepoContent;
+use epic::content::RepoContent;
 use rpki::rrdp::Hash;
 
 fn bad_hash(val: String) -> (StatusCode, String) {
@@ -68,7 +68,10 @@ async fn run() -> anyhow::Result<()> {
     };
 
     let app = Router::new()
-        .route("/", get(|| async { "EPIC: Erik Protocol Implementation Concept" }))
+        .route(
+            "/",
+            get(|| async { "EPIC: Erik Protocol Implementation Concept" }),
+        )
         .route("/.well-known/ni/{alg}/{val}", get(named_information));
 
     let listener = tokio::net::TcpListener::bind("[::]:3000").await.unwrap();
