@@ -16,22 +16,20 @@ use uuid::Uuid;
 
 use crate::{
     erik::asn1::ManifestRef,
-    fetch::retrieval::{FetchMapper, FetchResponse},
+    fetch::retrieval::{Etag, FetchMapper, FetchResponse},
     util::{de_bytes, ser_bytes},
 };
-
-type Etag = Option<String>;
 
 enum NotificationFileResponse {
     UnModified,
     Notification {
-        etag: Etag,
+        etag: Option<Etag>,
         notification_file: NotificationFile,
     },
 }
 
 impl NotificationFileResponse {
-    fn try_into_etag_and_file(self) -> anyhow::Result<(Etag, NotificationFile)> {
+    fn try_into_etag_and_file(self) -> anyhow::Result<(Option<Etag>, NotificationFile)> {
         match self {
             NotificationFileResponse::UnModified => {
                 Err(anyhow!("Notification file was unmodified"))
@@ -71,8 +69,8 @@ pub struct RrdpState {
     /// The serial number of the update of this snapshot.
     serial: u64,
 
-    /// Last seen ETag
-    etag: Etag,
+    /// Last seen notification file ETag
+    etag: Option<Etag>,
 
     /// All current elements
     elements: HashMap<Hash, Arc<RepoContentElement>>,
@@ -255,7 +253,7 @@ impl RrdpState {
 
     fn get_notification_file(
         notify: &uri::Https,
-        etag: &Etag,
+        etag: &Option<Etag>,
         fetch_mapper: &FetchMapper,
     ) -> anyhow::Result<NotificationFileResponse> {
         match fetch_mapper.resolve(notify.clone()).fetch(etag.as_ref())? {

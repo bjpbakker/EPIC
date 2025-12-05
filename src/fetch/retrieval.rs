@@ -13,6 +13,10 @@ use crate::util;
 
 pub const USER_AGENT: &str = concat!(crate_name!(), "/", crate_version!());
 
+// We could have a real type, but Etag really just is a string.
+// Using a type alias for readability.
+pub type Etag = String;
+
 /// The FQDN host part of a URI, as used in the Erik protocol,
 /// as well as in mapping content for FQDNs to local disk, e.g.
 /// for testing.
@@ -92,7 +96,7 @@ pub enum ResolvedSource {
 }
 
 impl ResolvedSource {
-    pub fn fetch(&self, etag: Option<&String>) -> anyhow::Result<FetchResponse> {
+    pub fn fetch(&self, etag: Option<&Etag>) -> anyhow::Result<FetchResponse> {
         match self {
             ResolvedSource::Uri(uri) => {
                 let client = Client::builder()
@@ -154,17 +158,18 @@ impl ResolvedSource {
 /// Contains a response from a fetch
 #[derive(Clone, Debug)]
 pub enum FetchResponse {
-    Data { bytes: Bytes, etag: Option<String> },
+    Data { bytes: Bytes, etag: Option<Etag> },
     UnModified,
 }
 
 impl FetchResponse {
-    pub fn etag(&self) -> Option<String> {
+    pub fn etag(&self) -> Option<&Etag> {
         match &self {
-            FetchResponse::Data { etag, .. } => etag.clone(),
+            FetchResponse::Data { etag, .. } => etag.as_ref(),
             FetchResponse::UnModified => None,
         }
     }
+
     pub fn try_into_data(self) -> anyhow::Result<Bytes> {
         match self {
             FetchResponse::Data { bytes, .. } => Ok(bytes),
