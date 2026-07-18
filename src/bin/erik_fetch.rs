@@ -5,7 +5,7 @@ use rpki::{rrdp, uri};
 use structopt::StructOpt;
 
 use epic::{
-    erik::asn1::{ErikIndex, ErikPartition},
+    erik::asn1::{ErikIndex, ErikPartition, ErikSegmentIndex},
     fetch::retrieval::{FetchMapper, Fqdn},
 };
 
@@ -31,6 +31,10 @@ fn try_main() -> Result<(), anyhow::Error> {
                 .join(".well-known/ni/sha-256/".as_ref())?
                 .join(base64_hash.as_bytes())?
         }
+        Mode::SegmentIndex => opts
+            .server
+            .join(".well-known/erik/segmentindex/".as_ref())?
+            .join(opts.fqdn.as_bytes())?,
     };
 
     let output = match opts.mode {
@@ -45,6 +49,12 @@ fn try_main() -> Result<(), anyhow::Error> {
             let partition = ErikPartition::decode(partition_bytes.as_ref())?;
 
             serde_json::to_string_pretty(&partition)?
+        }
+        Mode::SegmentIndex => {
+            let segment_index_bytes = fetch_mapper.resolve(uri).fetch(None)?.try_into_data()?;
+            let segment_index = ErikSegmentIndex::decode(segment_index_bytes.as_ref())?;
+
+            serde_json::to_string_pretty(&segment_index)?
         }
     };
 
@@ -73,4 +83,5 @@ enum Mode {
         #[structopt(short, long)]
         hash: rrdp::Hash,
     },
+    SegmentIndex,
 }
