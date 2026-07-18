@@ -27,13 +27,13 @@ use crate::{
     util::{de_ia5_string, ser_ia5_string},
 };
 
+// Use 'bin/mkoid' in the bcder lib to produce these OIDs
 /// 1.2.840.113549.1.9.16.1.55
-// Use 'bin/mkoid' in the bcder lib to get the following:
 pub const ERIK_INDEX_OID: Oid<&[u8]> = Oid(&[42, 134, 72, 134, 247, 13, 1, 9, 16, 1, 55]);
-
 /// 1.2.840.113549.1.9.16.1.56
-// Use 'bin/mkoid' in the bcder lib to get the following:
 pub const ERIK_PARTITION_OID: Oid<&[u8]> = Oid(&[42, 134, 72, 134, 247, 13, 1, 9, 16, 1, 56]);
+/// 1.3.6.1.4.1.41948.828
+pub const ERIK_SEGMENT_INDEX_OID: Oid<&[u8]> = Oid(&[43,6,1,4,1,130,199,92,134,60]);
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErikIndex {
@@ -470,6 +470,100 @@ impl PartialOrd for ManifestRef {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ErikSegmentIndex {
+    #[serde(serialize_with = "ser_ia5_string", deserialize_with = "de_ia5_string")]
+    segment_scope: Ia5String,
+    segment_time: Time,
+    segments: Vec<ErikSegmentRef>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ErikSegmentRef {
+    segment: Time,
+    index: Hash,
+}
+
+impl ErikSegmentRef {
+    pub fn encode(&self) -> impl encode::Values {
+        encode::sequence((
+            self.segment.encode_generalized_time(),
+            self.index.as_slice().encode(),
+        ))
+    }
+}
+
+impl ErikSegmentIndex {
+    pub fn encode(&self) -> impl encode::Values {
+        encode::sequence((
+            ERIK_SEGMENT_INDEX_OID.encode_ref(),
+            encode::sequence_as(
+                Tag::CTX_0,
+                encode::sequence((
+                    // version [0] default, not encoded
+                    self.segment_scope.encode_ref(),
+                    self.segment_time.encode_generalized_time(),
+                    encode::sequence(oid::SHA256.encode()),
+                    encode::sequence(encode::iter(self.segments.iter().map(|x| x.encode()))),
+                )),
+            ),
+        ))
+    }
+
+    pub fn decode<S: IntoSource>(
+        source: S,
+    ) -> Result<Self, DecodeError<<S::Source as Source>::Error>> {
+        Mode::Der.decode(source.into_source(), Self::take_from)
+    }
+
+    fn take_from<S: decode::Source>(
+        cons: &mut decode::Constructed<S>,
+    ) -> Result<Self, DecodeError<S::Error>> {
+        cons.take_sequence(|cons| {
+            let oid = Oid::take_from(cons)?;
+            if oid != ERIK_SEGMENT_INDEX_OID {
+                return Err(cons.content_err(format!(
+                    "not an Erik segment index OID. Got: {}, expected: {}",
+                    oid, ERIK_SEGMENT_INDEX_OID
+                )));
+            }
+
+            cons.take_constructed_if(Tag::CTX_0, |cons| {
+                cons.take_sequence(|cons| {
+                    // TODO: check version
+                    let segment_scope = Ia5String::take_from(cons)?;
+                    let segment_time = Time::take_from(cons)?;
+                    let hashing_algorithm = cons.take_sequence(|cons| Oid::take_from(cons))?;
+                    if hashing_algorithm != oid::SHA256 {
+                        return Err(cons.content_err("invalid digest algorithm"));
+                    }
+
+                    let segments = cons.take_sequence(|cons| {
+                        let mut segments = vec![];
+                        while let Some(segment) =
+                            cons.take_opt_constructed_if(Tag::SEQUENCE, |cons| {
+                                let segment = Time::take_from(cons)?;
+                                let hash_value = OctetString::take_from(cons)?;
+                                let index = Hash::try_from(hash_value.into_bytes().as_ref())
+                                    .map_err(|_| cons.content_err("invalid hash value"))?;
+                                Ok(ErikSegmentRef { segment, index })
+                            })?
+                        {
+                            segments.push(segment)
+                        }
+                        Ok(segments)
+                    })?;
+                    Ok(ErikSegmentIndex {
+                        segment_scope,
+                        segment_time,
+                        segments,
+                    })
+                })
+            })
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::content::RepoContent;
@@ -521,6 +615,14 @@ mod tests {
         assert_eq!(Bytes::from(index_der.as_ref()), encoded);
         let _base64 = BASE64_STANDARD_NO_PAD.encode(encoded.as_ref());
         // println!("{_base64}");
+    }
+
+    #[test]
+    fn erik_segment_index_support_rfc_example() {
+        let sample_der = include_bytes!("../../test-resources/erik-types/erik-segment-index-rfc.der");
+        let segment_index = ErikSegmentIndex::decode(sample_der.as_ref()).unwrap();
+        let encoded = segment_index.encode().to_captured(Mode::Der).into_bytes();
+        assert_eq!(Bytes::from(sample_der.as_ref()), encoded);
     }
 
     fn test_index_from_content() -> erik::state::ResolvedErikIndex {
