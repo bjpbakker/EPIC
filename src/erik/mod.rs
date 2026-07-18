@@ -2,4 +2,5 @@
 //!
 
 pub mod asn1;
+pub mod object_stream;
 pub mod state;
