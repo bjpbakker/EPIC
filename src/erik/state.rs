@@ -34,11 +34,13 @@ pub struct ResolvedErikIndex {
 }
 
 impl ResolvedErikIndex {
-    /// Creates and ErikIndex from the given content.
-    pub fn from_content(index_scope: String, content: &RepoContent) -> Option<Self> {
+    pub fn resolve<'a, I>(scope: String, content: I) -> Option<Self>
+    where
+        I: std::iter::Iterator<Item = &'a std::sync::Arc<asn1::ManifestRef>>,
+    {
         let mut partitions: HashMap<ErikPartitionKey, asn1::ErikPartition> = HashMap::new();
 
-        for mft_ref in content.manifests().values() {
+        for mft_ref in content {
             let partition_key = ErikPartitionKey::from(mft_ref.as_ref());
 
             if let Some(partition) = partitions.get_mut(&partition_key) {
@@ -59,10 +61,15 @@ impl ResolvedErikIndex {
             .map(|p| p.partition_time)
             .max()
             .map(|max_partition_time| ResolvedErikIndex {
-                index_scope,
+                index_scope: scope,
                 index_time: max_partition_time,
                 partitions,
             })
+    }
+
+    /// Creates and ErikIndex from the given content.
+    pub fn from_content(index_scope: String, content: &RepoContent) -> Option<Self> {
+        Self::resolve(index_scope, content.manifests().values())
     }
 }
 

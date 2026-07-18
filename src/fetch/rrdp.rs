@@ -70,11 +70,11 @@ pub struct RrdpState {
     etag: Option<Etag>,
 
     /// All current elements
-    elements: HashMap<Hash, Arc<RepoContentElement>>,
+    pub elements: HashMap<Hash, Arc<RepoContentElement>>,
 
     /// All current manifest references. Derived and updated
     /// whenever the elements are updated.
-    manifests: HashMap<KeyIdentifier, Arc<ManifestRef>>,
+    pub manifests: HashMap<KeyIdentifier, Arc<ManifestRef>>,
 }
 
 impl RrdpState {
