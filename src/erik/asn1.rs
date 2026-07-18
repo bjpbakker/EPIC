@@ -33,7 +33,7 @@ pub const ERIK_INDEX_OID: Oid<&[u8]> = Oid(&[42, 134, 72, 134, 247, 13, 1, 9, 16
 /// 1.2.840.113549.1.9.16.1.56
 pub const ERIK_PARTITION_OID: Oid<&[u8]> = Oid(&[42, 134, 72, 134, 247, 13, 1, 9, 16, 1, 56]);
 /// 1.3.6.1.4.1.41948.828
-pub const ERIK_SEGMENT_INDEX_OID: Oid<&[u8]> = Oid(&[43,6,1,4,1,130,199,92,134,60]);
+pub const ERIK_SEGMENT_INDEX_OID: Oid<&[u8]> = Oid(&[43, 6, 1, 4, 1, 130, 199, 92, 134, 60]);
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErikIndex {
@@ -619,7 +619,8 @@ mod tests {
 
     #[test]
     fn erik_segment_index_support_rfc_example() {
-        let sample_der = include_bytes!("../../test-resources/erik-types/erik-segment-index-rfc.der");
+        let sample_der =
+            include_bytes!("../../test-resources/erik-types/erik-segment-index-rfc.der");
         let segment_index = ErikSegmentIndex::decode(sample_der.as_ref()).unwrap();
         let encoded = segment_index.encode().to_captured(Mode::Der).into_bytes();
         assert_eq!(Bytes::from(sample_der.as_ref()), encoded);
