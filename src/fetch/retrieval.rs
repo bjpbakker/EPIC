@@ -7,6 +7,7 @@ use anyhow::{Context, anyhow};
 use bytes::Bytes;
 use reqwest::{StatusCode, blocking::Client, header};
 use rpki::uri;
+use serde::{Deserialize, Serialize};
 use structopt::clap::{crate_name, crate_version};
 
 use crate::util;
@@ -20,7 +21,7 @@ pub type Etag = String;
 /// The FQDN host part of a URI, as used in the Erik protocol,
 /// as well as in mapping content for FQDNs to local disk, e.g.
 /// for testing.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct Fqdn(String);
 
 impl Fqdn {
@@ -52,7 +53,7 @@ impl FromStr for Fqdn {
 /// Contains 0 or more DiskMappers that know how to map
 /// matching URIs to a location on disk. If there is no
 /// applicable mapper then the URI will be used as is.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FetchMapper {
     disk_mappers: HashMap<Fqdn, PathBuf>,
 }

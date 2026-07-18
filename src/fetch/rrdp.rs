@@ -9,6 +9,7 @@ use rpki::{
     rrdp::{self, Delta, Hash, NotificationFile, Snapshot},
     uri,
 };
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
@@ -51,7 +52,7 @@ impl NotificationFileResponse {
 /// of manifests MUST be done to prevent that anyone can
 /// forge a manifest using some CA certificate's SKI as its
 /// EE cert's AKI to poison the relay.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[allow(dead_code)]
 pub struct RrdpState {
     /// The RRDP notify URI and mapping.
