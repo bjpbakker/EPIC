@@ -1,12 +1,11 @@
 // Get ErikIndex or Partition files and dump them as somewhat readable JSON.
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rpki::{rrdp, uri};
 use structopt::StructOpt;
 
-use epic::{
-    erik::asn1::{ErikIndex, ErikPartition, ErikSegmentIndex},
-    fetch::retrieval::{FetchMapper, Fqdn},
+use epic::fetch::{
+    erik_client::ErikClient,
+    retrieval::{FetchMapper, Fqdn},
 };
 
 #[tokio::main]
@@ -20,61 +19,25 @@ async fn main() {
 async fn try_main() -> Result<(), anyhow::Error> {
     let opts = Opt::from_args();
 
-    let fetch_mapper = FetchMapper::empty();
-    let uri = match opts.mode {
-        Mode::Index => opts
-            .server
-            .join(".well-known/erik/index/".as_ref())?
-            .join(opts.fqdn.as_bytes())?,
-        Mode::Partition { hash } => {
-            let base64_hash = URL_SAFE_NO_PAD.encode(hash.as_slice());
-            opts.server
-                .join(".well-known/ni/sha-256/".as_ref())?
-                .join(base64_hash.as_bytes())?
-        }
-        Mode::SegmentIndex => opts
-            .server
-            .join(".well-known/erik/segmentindex/".as_ref())?
-            .join(opts.fqdn.as_bytes())?,
-    };
+    let mapper = FetchMapper::empty();
 
-    let output = match opts.mode {
+    let json = match opts.mode {
         Mode::Index => {
-            let index_bytes = fetch_mapper
-                .resolve(uri)
-                .await
-                .fetch(None)
-                .await?
-                .try_into_data()?;
-            let erik_index = ErikIndex::decode(index_bytes.as_ref())?;
-
-            serde_json::to_string_pretty(&erik_index)?
+            let index = ErikClient::get_erik_index(opts.server, opts.fqdn, mapper).await?;
+            serde_json::to_string_pretty(&index)
         }
-        Mode::Partition { .. } => {
-            let partition_bytes = fetch_mapper
-                .resolve(uri)
-                .await
-                .fetch(None)
-                .await?
-                .try_into_data()?;
-            let partition = ErikPartition::decode(partition_bytes.as_ref())?;
-
-            serde_json::to_string_pretty(&partition)?
+        Mode::Partition { hash } => {
+            let partition = ErikClient::get_erik_partition(hash, opts.server, mapper).await?;
+            serde_json::to_string_pretty(&partition)
         }
         Mode::SegmentIndex => {
-            let segment_index_bytes = fetch_mapper
-                .resolve(uri)
-                .await
-                .fetch(None)
-                .await?
-                .try_into_data()?;
-            let segment_index = ErikSegmentIndex::decode(segment_index_bytes.as_ref())?;
-
-            serde_json::to_string_pretty(&segment_index)?
+            let segment_index =
+                ErikClient::get_segment_index(opts.server, opts.fqdn, mapper).await?;
+            serde_json::to_string_pretty(&segment_index)
         }
-    };
+    }?;
 
-    println!("{output}");
+    println!("{json}");
 
     Ok(())
 }

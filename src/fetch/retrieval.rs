@@ -84,6 +84,10 @@ impl FetchMapper {
             None => ResolvedSource::Uri(uri),
         }
     }
+
+    pub async fn get_bytes(&self, uri: uri::Https, etag: Option<&String>) -> anyhow::Result<Bytes> {
+        self.resolve(uri).await.fetch(etag).await?.try_into_data()
+    }
 }
 
 /// This is a resolved source for some requested URI, which can
