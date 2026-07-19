@@ -165,7 +165,7 @@ async fn run(cfg: Opt, state: Arc<RwLock<RrdpState>>) -> anyhow::Result<()> {
             let index = asn1::ErikIndex::from(&state);
             return der(index.encode().to_captured(Mode::Der).into_bytes()).into_response();
         }
-        return not_found("not yet", fqdn).into_response();
+        not_found("not yet", fqdn).into_response()
     };
 
     let app = Router::new()
