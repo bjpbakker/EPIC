@@ -4,7 +4,7 @@ use rpki::{rrdp, uri};
 use structopt::StructOpt;
 
 use epic::fetch::{
-    erik_client,
+    erik_client::{self, ErikClient},
     retrieval::{FetchMapper, Fqdn},
 };
 
@@ -23,17 +23,21 @@ async fn try_main() -> Result<(), anyhow::Error> {
 
     let json = match opts.mode {
         Mode::Index => {
-            let index = erik_client::get_erik_index(opts.server, opts.fqdn, mapper).await?;
+            let index = erik_client::get_erik_index(&opts.server, &opts.fqdn, &mapper).await?;
             serde_json::to_string_pretty(&index)
         }
         Mode::Partition { hash } => {
-            let partition = erik_client::get_erik_partition(hash, opts.server, mapper).await?;
+            let partition = erik_client::get_erik_partition(hash, &opts.server, &mapper).await?;
             serde_json::to_string_pretty(&partition)
         }
         Mode::SegmentIndex => {
             let segment_index =
-                erik_client::get_segment_index(opts.server, opts.fqdn, mapper).await?;
+                erik_client::get_segment_index(&opts.server, &opts.fqdn, &mapper).await?;
             serde_json::to_string_pretty(&segment_index)
+        }
+        Mode::ErikClient => {
+            let client = ErikClient::initialise(&opts.server, &opts.fqdn, &mapper).await?;
+            serde_json::to_string_pretty(&client)
         }
     }?;
 
@@ -63,4 +67,5 @@ enum Mode {
         hash: rrdp::Hash,
     },
     SegmentIndex,
+    ErikClient,
 }

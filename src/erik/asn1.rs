@@ -40,10 +40,14 @@ pub struct ErikIndex {
     #[serde(serialize_with = "ser_ia5_string", deserialize_with = "de_ia5_string")]
     index_scope: Ia5String,
     index_time: Time,
-    partitions: Vec<ErikPartitionRef>,
+    partition_list: Vec<ErikPartitionRef>,
 }
 
 impl ErikIndex {
+    pub fn partition_list(&self) -> &Vec<ErikPartitionRef> {
+        &self.partition_list
+    }
+
     pub fn encode(&self) -> impl encode::Values {
         encode::sequence((
             ERIK_INDEX_OID.encode_ref(),
@@ -54,7 +58,7 @@ impl ErikIndex {
                     self.index_scope.encode_ref(),
                     self.index_time.encode_generalized_time(),
                     encode::sequence(oid::SHA256.encode()),
-                    encode::sequence(encode::iter(self.partitions.iter().map(|p| p.encode()))),
+                    encode::sequence(encode::iter(self.partition_list.iter().map(|p| p.encode()))),
                 )),
             ),
         ))
@@ -106,7 +110,7 @@ impl ErikIndex {
                     Ok(ErikIndex {
                         index_scope,
                         index_time,
-                        partitions,
+                        partition_list: partitions,
                     })
                 })
             })
@@ -128,13 +132,13 @@ impl From<&erik::state::ResolvedErikIndex> for ErikIndex {
         ErikIndex {
             index_scope: Ia5String::from_string(index.index_scope.clone()).unwrap(),
             index_time: index.index_time,
-            partitions,
+            partition_list: partitions,
         }
     }
 }
 
 /// ErikPartitionRef as defined in section 3 of the draft.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[allow(dead_code)]
 pub struct ErikPartitionRef {
     hash: Hash,
@@ -147,6 +151,10 @@ impl ErikPartitionRef {
         let size = partition_bytes.len() as u32;
 
         ErikPartitionRef { hash, size }
+    }
+
+    pub fn hash(&self) -> Hash {
+        self.hash
     }
 
     pub fn encode(&self) -> impl encode::Values {
@@ -609,7 +617,7 @@ mod tests {
         let index_der = include_bytes!("../../test-resources/erik-types/erik-index-rfc.der");
         let index = ErikIndex::decode(index_der.as_ref()).unwrap();
 
-        assert_eq!(256, index.partitions.len());
+        assert_eq!(256, index.partition_list.len());
         let encoded = index.encode().to_captured(Mode::Der).into_bytes();
 
         assert_eq!(Bytes::from(index_der.as_ref()), encoded);
