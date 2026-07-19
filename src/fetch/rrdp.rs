@@ -349,8 +349,8 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn create_rrdp_state() {
+    #[tokio::test]
+    async fn create_rrdp_state() {
         let notification_uri = https("https://krill-ui-dev.do.nlnetlabs.nl/rrdp/notification.xml");
         let mut mapper = FetchMapper::empty();
         mapper.add_disk_mapper(
@@ -358,7 +358,7 @@ mod tests {
             PathBuf::from("test-resources/rrdp-rev2656/"),
         );
 
-        let rrdp_state = RrdpState::create(notification_uri, mapper).unwrap();
+        let rrdp_state = RrdpState::create(notification_uri, mapper).await.unwrap();
 
         assert!(!rrdp_state.elements.is_empty());
         assert!(!rrdp_state.manifests.is_empty());
