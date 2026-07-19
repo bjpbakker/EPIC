@@ -5,7 +5,7 @@ use std::{collections::HashMap, path::PathBuf, str::FromStr, time::Duration};
 
 use anyhow::{Context, anyhow};
 use bytes::Bytes;
-use reqwest::{StatusCode, blocking::Client, header};
+use reqwest::{Client, StatusCode, header};
 use rpki::uri;
 use serde::{Deserialize, Serialize};
 use structopt::clap::{crate_name, crate_version};
@@ -69,7 +69,7 @@ impl FetchMapper {
         self.disk_mappers.insert(fqdn, base_dir);
     }
 
-    pub fn resolve(&self, uri: uri::Https) -> ResolvedSource {
+    pub async fn resolve(&self, uri: uri::Https) -> ResolvedSource {
         let fqdn = Fqdn::from(&uri);
 
         match self.disk_mappers.get(&fqdn) {
@@ -97,7 +97,7 @@ pub enum ResolvedSource {
 }
 
 impl ResolvedSource {
-    pub fn fetch(&self, etag: Option<&Etag>) -> anyhow::Result<FetchResponse> {
+    pub async fn fetch(&self, etag: Option<&Etag>) -> anyhow::Result<FetchResponse> {
         match self {
             ResolvedSource::Uri(uri) => {
                 let client = Client::builder()
@@ -115,6 +115,7 @@ impl ResolvedSource {
 
                 let response = request_builder
                     .send()
+                    .await
                     .with_context(|| format!("Could not GET: {uri}"))?;
 
                 match response.status() {
@@ -129,7 +130,7 @@ impl ResolvedSource {
                             ),
                         };
 
-                        let bytes = response.bytes().with_context(|| {
+                        let bytes = response.bytes().await.with_context(|| {
                             format!("Got no response from '{uri}' even though the status was OK")
                         })?;
 

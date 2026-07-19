@@ -85,14 +85,16 @@ impl RrdpState {
     ///
     /// In case of trouble this errors out as one might
     /// expect.
-    pub fn create(notify: uri::Https, fetch_mapper: FetchMapper) -> anyhow::Result<Self> {
-        let (etag, notification) =
-            Self::get_notification_file(&notify, &None, &fetch_mapper)?.try_into_etag_and_file()?;
+    pub async fn create(notify: uri::Https, fetch_mapper: FetchMapper) -> anyhow::Result<Self> {
+        let (etag, notification) = Self::get_notification_file(&notify, &None, &fetch_mapper)
+            .await?
+            .try_into_etag_and_file()?;
 
         let session_id = notification.session_id();
         let serial = notification.serial();
 
-        let snapshot = Self::get_snapshot_file(notification.snapshot().uri(), &fetch_mapper)?;
+        let snapshot =
+            Self::get_snapshot_file(notification.snapshot().uri(), &fetch_mapper).await?;
         let elements = Self::elements_from_snapshot(snapshot);
 
         let manifests = Self::manifests_from_elements(&elements);
@@ -114,8 +116,8 @@ impl RrdpState {
     /// Err       in case of issues
     /// Ok(true)  in case there was an update
     /// Ok(false) in case there was no update
-    pub fn update(&mut self) -> anyhow::Result<bool> {
-        match Self::get_notification_file(&self.notify, &self.etag, &self.fetch_mapper)? {
+    pub async fn update(&mut self) -> anyhow::Result<bool> {
+        match Self::get_notification_file(&self.notify, &self.etag, &self.fetch_mapper).await? {
             NotificationFileResponse::UnModified => Ok(false),
             NotificationFileResponse::Notification {
                 etag,
@@ -146,11 +148,15 @@ impl RrdpState {
 
                 if self.session_id != notification_file.session_id() {
                     // session changed, we will have to use the snapshot
-                    self.update_from_snapshot(&notification_file)?
+                    self.update_from_snapshot(&notification_file).await?
                 } else {
                     // try delta, if if fails fall back to snapshot
-                    if self.update_from_deltas(&mut notification_file).is_err() {
-                        self.update_from_snapshot(&notification_file)?;
+                    if self
+                        .update_from_deltas(&mut notification_file)
+                        .await
+                        .is_err()
+                    {
+                        self.update_from_snapshot(&notification_file).await?;
                     }
                 }
 
@@ -159,7 +165,7 @@ impl RrdpState {
         }
     }
 
-    fn update_from_deltas(
+    async fn update_from_deltas(
         &mut self,
         notification_file: &mut NotificationFile,
     ) -> anyhow::Result<()> {
@@ -169,7 +175,7 @@ impl RrdpState {
 
         let mut new_elements: HashMap<Hash, Arc<RepoContentElement>> = HashMap::new();
         for delta_ref in notification_file.deltas() {
-            let delta = Self::get_delta_file(delta_ref.uri(), &self.fetch_mapper)?;
+            let delta = Self::get_delta_file(delta_ref.uri(), &self.fetch_mapper).await?;
 
             // Sanity check the updates and withdraws as mismatches indicate
             // that we are out of sync and should do a full snapshot resync
@@ -213,9 +219,12 @@ impl RrdpState {
         Ok(())
     }
 
-    fn update_from_snapshot(&mut self, notification_file: &NotificationFile) -> anyhow::Result<()> {
+    async fn update_from_snapshot(
+        &mut self,
+        notification_file: &NotificationFile,
+    ) -> anyhow::Result<()> {
         let snapshot =
-            Self::get_snapshot_file(notification_file.snapshot().uri(), &self.fetch_mapper)?;
+            Self::get_snapshot_file(notification_file.snapshot().uri(), &self.fetch_mapper).await?;
 
         self.serial = snapshot.serial();
         self.session_id = snapshot.session_id();
@@ -249,12 +258,17 @@ impl RrdpState {
         }
     }
 
-    fn get_notification_file(
+    async fn get_notification_file(
         notify: &uri::Https,
         etag: &Option<Etag>,
         fetch_mapper: &FetchMapper,
     ) -> anyhow::Result<NotificationFileResponse> {
-        match fetch_mapper.resolve(notify.clone()).fetch(etag.as_ref())? {
+        match fetch_mapper
+            .resolve(notify.clone())
+            .await
+            .fetch(etag.as_ref())
+            .await?
+        {
             FetchResponse::Data { bytes, etag } => {
                 let notification_file = NotificationFile::parse(bytes.as_ref())
                     .with_context(|| "Failed to parse notification file")?;
@@ -268,22 +282,29 @@ impl RrdpState {
         }
     }
 
-    fn get_snapshot_file(
+    async fn get_snapshot_file(
         snapshot_uri: &uri::Https,
         fetch_mapper: &FetchMapper,
     ) -> anyhow::Result<Snapshot> {
         let snapshot_bytes = fetch_mapper
             .resolve(snapshot_uri.clone())
-            .fetch(None)?
+            .await
+            .fetch(None)
+            .await?
             .try_into_data()?;
 
         Snapshot::parse(snapshot_bytes.as_ref()).with_context(|| "Failed to parse snapshot file")
     }
 
-    fn get_delta_file(delta_uri: &uri::Https, fetch_mapper: &FetchMapper) -> anyhow::Result<Delta> {
+    async fn get_delta_file(
+        delta_uri: &uri::Https,
+        fetch_mapper: &FetchMapper,
+    ) -> anyhow::Result<Delta> {
         let delta_bytes = fetch_mapper
             .resolve(delta_uri.clone())
-            .fetch(None)?
+            .await
+            .fetch(None)
+            .await?
             .try_into_data()?;
 
         Delta::parse(delta_bytes.as_ref()).with_context(|| "Failed to parse snapshot file")

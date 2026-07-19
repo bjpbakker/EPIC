@@ -9,14 +9,15 @@ use epic::{
     fetch::retrieval::{FetchMapper, Fqdn},
 };
 
-fn main() {
-    if let Err(e) = try_main() {
+#[tokio::main]
+async fn main() {
+    if let Err(e) = try_main().await {
         eprintln!("Error: {e}");
         ::std::process::exit(1);
     }
 }
 
-fn try_main() -> Result<(), anyhow::Error> {
+async fn try_main() -> Result<(), anyhow::Error> {
     let opts = Opt::from_args();
 
     let fetch_mapper = FetchMapper::empty();
@@ -39,19 +40,34 @@ fn try_main() -> Result<(), anyhow::Error> {
 
     let output = match opts.mode {
         Mode::Index => {
-            let index_bytes = fetch_mapper.resolve(uri).fetch(None)?.try_into_data()?;
+            let index_bytes = fetch_mapper
+                .resolve(uri)
+                .await
+                .fetch(None)
+                .await?
+                .try_into_data()?;
             let erik_index = ErikIndex::decode(index_bytes.as_ref())?;
 
             serde_json::to_string_pretty(&erik_index)?
         }
         Mode::Partition { .. } => {
-            let partition_bytes = fetch_mapper.resolve(uri).fetch(None)?.try_into_data()?;
+            let partition_bytes = fetch_mapper
+                .resolve(uri)
+                .await
+                .fetch(None)
+                .await?
+                .try_into_data()?;
             let partition = ErikPartition::decode(partition_bytes.as_ref())?;
 
             serde_json::to_string_pretty(&partition)?
         }
         Mode::SegmentIndex => {
-            let segment_index_bytes = fetch_mapper.resolve(uri).fetch(None)?.try_into_data()?;
+            let segment_index_bytes = fetch_mapper
+                .resolve(uri)
+                .await
+                .fetch(None)
+                .await?
+                .try_into_data()?;
             let segment_index = ErikSegmentIndex::decode(segment_index_bytes.as_ref())?;
 
             serde_json::to_string_pretty(&segment_index)?
