@@ -27,10 +27,7 @@ use epic::{
         rrdp::RrdpState,
     },
 };
-use rpki::{
-    dep::bcder::encode::Values,
-    uri,
-};
+use rpki::{dep::bcder::encode::Values, uri};
 
 use structopt::StructOpt;
 
@@ -98,7 +95,9 @@ impl ServerState {
     }
 
     fn update(&mut self, fqdn: &Fqdn, rrdp_state: &RrdpState) {
-        if let Some(index) = ResolvedErikIndex::resolve(fqdn.as_str().into(), rrdp_state.manifests.values()) {
+        if let Some(index) =
+            ResolvedErikIndex::resolve(fqdn.as_str().into(), rrdp_state.manifests.values())
+        {
             for partition in index.partitions.values() {
                 let enc = asn1::ErikPartitionEncoder::from(partition);
                 let der = enc.encode().to_captured(asn1::Mode::Der).into_bytes();
@@ -114,9 +113,11 @@ impl ServerState {
         }
     }
 
-    fn get_index(&self, fqdn: &str) -> Option<&asn1::ErikIndex> {
-        let Ok(fqdn_) = Fqdn::from_str(fqdn);
-        self.indices.get(&fqdn_)
+    fn get_index(&self, fqdn_str: &str) -> Option<&asn1::ErikIndex> {
+        Fqdn::from_str(fqdn_str)
+            .ok()
+            .map(|fqdn| self.indices.get(&fqdn))
+            .flatten()
     }
 
     fn get_object(&self, hash: &asn1::Hash) -> Option<&Bytes> {
@@ -206,7 +207,9 @@ async fn run(port: u16, state: State) -> anyhow::Result<()> {
         debug!("GET Erik index for {fqdn}");
         let lock = index_state.read().await;
         match lock.get_index(&fqdn) {
-            Some(index) => der(index.encode().to_captured(asn1::Mode::Der).into_bytes()).into_response(),
+            Some(index) => {
+                der(index.encode().to_captured(asn1::Mode::Der).into_bytes()).into_response()
+            }
             None => not_found("index", fqdn).into_response(),
         }
     };
