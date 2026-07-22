@@ -46,6 +46,10 @@ pub struct ErikIndex {
 }
 
 impl ErikIndex {
+    pub fn index_scope(&self) -> &Ia5String {
+        &self.index_scope
+    }
+
     pub fn partition_list(&self) -> &Vec<ErikPartitionRef> {
         &self.partition_list
     }

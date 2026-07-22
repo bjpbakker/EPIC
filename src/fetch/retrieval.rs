@@ -6,7 +6,7 @@ use std::{collections::HashMap, path::PathBuf, str::FromStr, time::Duration};
 use anyhow::{Context, anyhow};
 use bytes::Bytes;
 use reqwest::{Client, StatusCode, header};
-use rpki::uri;
+use rpki::{dep::bcder::Ia5String, uri};
 use serde::{Deserialize, Serialize};
 use structopt::clap::{crate_name, crate_version};
 
@@ -41,10 +41,18 @@ impl From<&uri::Https> for Fqdn {
 }
 
 impl FromStr for Fqdn {
-    type Err = std::convert::Infallible;
+    type Err = anyhow::Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> anyhow::Result<Self> {
         Ok(Self(s.to_ascii_lowercase()))
+    }
+}
+
+impl TryFrom<&Ia5String> for Fqdn {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Ia5String) -> anyhow::Result<Self> {
+        Self::from_str(&value.to_string())
     }
 }
 

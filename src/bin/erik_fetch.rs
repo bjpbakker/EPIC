@@ -1,5 +1,7 @@
 // Get ErikIndex or Partition files and dump them as somewhat readable JSON.
 
+use std::path::PathBuf;
+
 use rpki::{rrdp, uri};
 use structopt::StructOpt;
 
@@ -35,9 +37,14 @@ async fn try_main() -> Result<(), anyhow::Error> {
                 erik_client::get_segment_index(&opts.server, &opts.fqdn, &mapper).await?;
             serde_json::to_string_pretty(&segment_index)
         }
-        Mode::ErikClient => {
-            let client = ErikClient::initialise(&opts.server, &opts.fqdn, &mapper).await?;
-            serde_json::to_string_pretty(&client)
+        Mode::ErikClient { state_dir } => {
+            let mut client =
+                ErikClient::start(&opts.server, opts.fqdn, &mapper, &state_dir).await?;
+            client.update(&opts.server, &mapper).await?;
+
+            client.save(&state_dir)?;
+
+            Ok("erik client updated".to_string())
         }
     }?;
 
@@ -67,5 +74,8 @@ enum Mode {
         hash: rrdp::Hash,
     },
     SegmentIndex,
-    ErikClient,
+    ErikClient {
+        #[structopt(short, long)]
+        state_dir: PathBuf,
+    },
 }

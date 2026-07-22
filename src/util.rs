@@ -1,10 +1,16 @@
-use std::{fmt, fs::File, io::Read, path::Path};
+use std::{
+    fmt,
+    fs::{self, File},
+    io::{Read, Write},
+    path::Path,
+};
 
+use anyhow::Context;
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use bytes::Bytes;
 use chrono::{Local, TimeZone};
 use rpki::dep::bcder::Ia5String;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use uuid::Uuid;
 
 //----------------------------------------------------------------------------
@@ -15,6 +21,50 @@ pub fn read_file(file_path: &Path) -> anyhow::Result<Bytes> {
     let mut buf = Vec::new();
     f.read_to_end(&mut buf)?;
     Ok(Bytes::from(buf))
+}
+
+/// Saves a file, creating parent dirs as needed
+pub fn save_file(content: &[u8], full_path: &Path) -> anyhow::Result<()> {
+    let mut f = create_file_with_path(full_path)?;
+
+    f.write_all(content)
+        .with_context(|| format!("Could not write to: {}", full_path.to_string_lossy()))?;
+
+    Ok(())
+}
+
+/// Creates a new File or opens an exiting one. If the file did not exist, the path
+/// will be created if it did not exist yet.
+pub fn create_file_with_path(path: &Path) -> anyhow::Result<File> {
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "Could not create dir path for: {}",
+                    parent.to_string_lossy()
+                )
+            })?;
+        }
+    }
+    File::create(path).with_context(|| format!("Could not create file: {}", path.to_string_lossy()))
+}
+
+/// Saves an object to json - unwraps any json errors!
+pub fn save_json<O: Serialize>(object: &O, full_path: &Path) -> anyhow::Result<()> {
+    let json = serde_json::to_string_pretty(object).unwrap();
+    save_file(&Bytes::from(json), full_path)
+}
+
+/// Loads a files and deserializes as json for the expected type. Maps json errors to KrillIoError
+pub fn load_json<O: DeserializeOwned>(full_path: &Path) -> anyhow::Result<O> {
+    let bytes = read_file(full_path)?;
+
+    serde_json::from_slice(&bytes).with_context(|| {
+        format!(
+            "Error deserializing json file: {}",
+            full_path.to_string_lossy()
+        )
+    })
 }
 
 //----------------------------------------------------------------------------
