@@ -9,7 +9,9 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, debug, error, info, warn};
 
+use std::collections::HashMap;
 use std::process::exit;
+use std::str::FromStr;
 
 use std::sync::Arc;
 use tokio::{
@@ -26,8 +28,7 @@ use epic::{
     },
 };
 use rpki::{
-    dep::bcder::{Mode, encode::Values},
-    rrdp::Hash,
+    dep::bcder::encode::Values,
     uri,
 };
 
@@ -83,6 +84,48 @@ fn der(data: Bytes) -> impl IntoResponse {
     )
 }
 
+struct ServerState {
+    indices: HashMap<Fqdn, asn1::ErikIndex>,
+    objects: HashMap<asn1::Hash, Bytes>,
+}
+
+impl ServerState {
+    fn init() -> Self {
+        ServerState {
+            indices: HashMap::new(),
+            objects: HashMap::new(),
+        }
+    }
+
+    fn update(&mut self, fqdn: &Fqdn, rrdp_state: &RrdpState) {
+        if let Some(index) = ResolvedErikIndex::resolve(fqdn.as_str().into(), rrdp_state.manifests.values()) {
+            for partition in index.partitions.values() {
+                let enc = asn1::ErikPartitionEncoder::from(partition);
+                let der = enc.encode().to_captured(asn1::Mode::Der).into_bytes();
+                let partition_ref = asn1::ErikPartitionRef::new(&der);
+                self.objects.insert(partition_ref.hash, der);
+            }
+            for (hash, object) in rrdp_state.elements.clone() {
+                self.objects.insert(hash, object.data().clone());
+            }
+
+            let erik_index = asn1::ErikIndex::from(&index);
+            self.indices.insert(fqdn.clone(), erik_index);
+        }
+    }
+
+    fn get_index(&self, fqdn: &str) -> Option<&asn1::ErikIndex> {
+        let Ok(fqdn_) = Fqdn::from_str(fqdn);
+        self.indices.get(&fqdn_)
+    }
+
+    fn get_object(&self, hash: &asn1::Hash) -> Option<&Bytes> {
+        self.objects.get(hash)
+    }
+}
+
+type State = Arc<RwLock<ServerState>>;
+
 #[tokio::main]
 async fn main() {
     let opts = Opt::from_args();
@@ -96,52 +139,58 @@ async fn main() {
         opts.notify_url.as_str()
     );
 
-    let rrdp_state = RrdpState::create(opts.notify_url.clone(), FetchMapper::empty()).await;
-    if let Err(cause) = rrdp_state {
+    let init_rrdp = RrdpState::create(opts.notify_url.clone(), FetchMapper::empty()).await;
+    if let Err(cause) = init_rrdp {
         error!("Cannot create RRDP state: {cause}");
         exit(1);
     }
-
-    if let Ok(rrdp) = rrdp_state {
+    if let Ok(mut rrdp) = init_rrdp {
         info!("Starting HTTP server on port {}", opts.port);
-        let state = Arc::new(RwLock::new(rrdp));
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let updater_state = state.clone();
+
+        let mut init = ServerState::init();
+        init.update(&opts.fqdn, &rrdp);
+
+        let state: State = Arc::new(RwLock::new(init));
+        let state_for_rrdp_updates = state.clone();
+
         let updater = rt.spawn(async move {
             loop {
                 sleep(Duration::from_secs(30)).await;
                 info!("Updating RRDP");
-                let mut lock = updater_state.write().await;
-                if let Err(cause) = lock.update().await {
+                if let Err(cause) = rrdp.update().await {
                     warn!("RRDP update failed: {}", cause);
+                    continue;
                 }
+                let mut state = state_for_rrdp_updates.write().await;
+                state.update(&opts.fqdn, &rrdp);
             }
         });
         let http_state = state.clone();
-        let http = run(opts, http_state);
+        let http = run(opts.port, http_state);
         if let (_, Err(cause)) = tokio::join!(updater, http) {
             error!("HTTP server failed: {}", cause);
         }
     }
 }
 
-async fn run(cfg: Opt, state: Arc<RwLock<RrdpState>>) -> anyhow::Result<()> {
+async fn run(port: u16, state: State) -> anyhow::Result<()> {
     let ni_state = state.clone();
     let named_information = async move |Path((alg, val)): Path<(String, String)>| {
         if alg != "sha-256" {
             return (
                 StatusCode::BAD_REQUEST,
-                "unsupported hashing algorithm: {alg}",
+                format!("unsupported hashing algorithm: {alg}"),
             )
                 .into_response();
         }
         match URL_SAFE_NO_PAD.decode(val.as_bytes()) {
             Ok(h) if h.len() == 32 => {
-                if let Ok(hash) = Hash::try_from(h.as_slice()) {
+                if let Ok(hash) = asn1::Hash::try_from(h.as_slice()) {
                     debug!("GET {hash}");
-                    let lock = ni_state.read().await;
-                    match lock.elements.get(&hash) {
-                        Some(obj) => der(obj.data().to_vec().into()).into_response(),
+                    let state = ni_state.read().await;
+                    match state.get_object(&hash) {
+                        Some(obj) => der(obj.clone()).into_response(),
                         None => not_found("object", hash.to_string()).into_response(),
                     }
                 } else {
@@ -155,17 +204,11 @@ async fn run(cfg: Opt, state: Arc<RwLock<RrdpState>>) -> anyhow::Result<()> {
     let index_state = state.clone();
     let named_index = async move |Path(fqdn): Path<String>| {
         debug!("GET Erik index for {fqdn}");
-        if fqdn != cfg.fqdn.as_str() {
-            return not_found("index", fqdn).into_response();
-        }
         let lock = index_state.read().await;
-        if let Some(state) =
-            ResolvedErikIndex::resolve(cfg.fqdn.as_str().into(), lock.manifests.values())
-        {
-            let index = asn1::ErikIndex::from(&state);
-            return der(index.encode().to_captured(Mode::Der).into_bytes()).into_response();
+        match lock.get_index(&fqdn) {
+            Some(index) => der(index.encode().to_captured(asn1::Mode::Der).into_bytes()).into_response(),
+            None => not_found("index", fqdn).into_response(),
         }
-        not_found("not yet", fqdn).into_response()
     };
 
     let app = Router::new()
@@ -176,7 +219,7 @@ async fn run(cfg: Opt, state: Arc<RwLock<RrdpState>>) -> anyhow::Result<()> {
         .route("/.well-known/ni/{alg}/{val}", get(named_information))
         .route("/.well-known/erik/index/{fqdn}", get(named_index));
 
-    let listener = tokio::net::TcpListener::bind(format!("[::]:{}", cfg.port))
+    let listener = tokio::net::TcpListener::bind(format!("[::]:{}", port))
         .await
         .unwrap();
     axum::serve(listener, app).await.unwrap();

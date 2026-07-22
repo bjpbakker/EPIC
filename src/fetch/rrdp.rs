@@ -6,7 +6,7 @@ use anyhow::{Context, anyhow};
 
 use rpki::{
     crypto::KeyIdentifier,
-    rrdp::{self, Delta, Hash, NotificationFile, Snapshot},
+    rrdp::{self, Delta, NotificationFile, Snapshot},
     uri,
 };
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,8 @@ use crate::{
     erik::asn1::ManifestRef,
     fetch::retrieval::{Etag, FetchMapper, FetchResponse},
 };
+
+pub use rpki::rrdp::Hash;
 
 enum NotificationFileResponse {
     UnModified,

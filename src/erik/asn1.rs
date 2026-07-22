@@ -8,16 +8,14 @@ use bytes::Bytes;
 use rpki::{
     crypto::KeyIdentifier,
     dep::bcder::{
-        Captured, Ia5String, Mode, OctetString, Oid, Tag,
+        Captured, OctetString, Oid, Tag,
         decode::{self, DecodeError, IntoSource, Source},
         encode::{self, PrimitiveContent, Values},
     },
     oid,
     repository::{
         Manifest,
-        x509::{Serial, Time},
     },
-    rrdp::Hash,
     uri,
 };
 use serde::{Deserialize, Serialize};
@@ -26,6 +24,10 @@ use crate::{
     erik,
     util::{de_ia5_string, ser_ia5_string},
 };
+
+pub use rpki::dep::bcder::{Ia5String, Mode};
+pub use rpki::rrdp::Hash;
+pub use rpki::repository::x509::{Serial, Time};
 
 // Use 'bin/mkoid' in the bcder lib to produce these OIDs
 /// 1.2.840.113549.1.9.16.1.55
@@ -38,9 +40,9 @@ pub const ERIK_SEGMENT_INDEX_OID: Oid<&[u8]> = Oid(&[43, 6, 1, 4, 1, 130, 199, 9
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErikIndex {
     #[serde(serialize_with = "ser_ia5_string", deserialize_with = "de_ia5_string")]
-    index_scope: Ia5String,
-    index_time: Time,
-    partition_list: Vec<ErikPartitionRef>,
+    pub index_scope: Ia5String,
+    pub index_time: Time,
+    pub partition_list: Vec<ErikPartitionRef>,
 }
 
 impl ErikIndex {
@@ -120,15 +122,10 @@ impl ErikIndex {
 
 impl From<&erik::state::ResolvedErikIndex> for ErikIndex {
     fn from(index: &erik::state::ResolvedErikIndex) -> Self {
-        let mut partitions = vec![];
-        for p in index.partitions.values() {
-            let part_enc = ErikPartitionEncoder::from(p);
-            let bytes = part_enc.to_captured().into_bytes();
-            let erik_part_ref = ErikPartitionRef::new(&bytes);
-            partitions.push(erik_part_ref);
-        }
+        let mut partitions: Vec<ErikPartitionRef> = index.partitions.values()
+            .map(ErikPartitionRef::from)
+            .collect();
         partitions.sort();
-
         ErikIndex {
             index_scope: Ia5String::from_string(index.index_scope.clone()).unwrap(),
             index_time: index.index_time,
@@ -141,8 +138,8 @@ impl From<&erik::state::ResolvedErikIndex> for ErikIndex {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[allow(dead_code)]
 pub struct ErikPartitionRef {
-    hash: Hash,
-    size: u32, // max 4GB is enough
+    pub hash: Hash,
+    pub size: u32, // max 4GB is enough
 }
 
 impl ErikPartitionRef {
@@ -159,6 +156,14 @@ impl ErikPartitionRef {
 
     pub fn encode(&self) -> impl encode::Values {
         encode::sequence((self.hash.as_slice().encode(), self.size.encode()))
+    }
+}
+
+impl From<&ErikPartition> for ErikPartitionRef {
+    fn from(partition: &ErikPartition) -> Self {
+        let enc = ErikPartitionEncoder::from(partition);
+        let bytes = enc.to_captured().into_bytes();
+        ErikPartitionRef::new(&bytes)
     }
 }
 
@@ -290,8 +295,8 @@ pub struct ErikPartitionEncoder {
     // version [0]
     // hashAlg SHA-256
     /// most recent this update among manifests
-    partition_time: Time,
-    manifest_refs: Captured,
+    pub partition_time: Time,
+    pub manifest_refs: Captured,
 }
 
 impl From<&ErikPartition> for ErikPartitionEncoder {
@@ -481,15 +486,15 @@ impl PartialOrd for ManifestRef {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErikSegmentIndex {
     #[serde(serialize_with = "ser_ia5_string", deserialize_with = "de_ia5_string")]
-    segment_scope: Ia5String,
-    segment_time: Time,
-    segments: Vec<ErikSegmentRef>,
+    pub segment_scope: Ia5String,
+    pub segment_time: Time,
+    pub segments: Vec<ErikSegmentRef>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErikSegmentRef {
-    segment: Time,
-    index: Hash,
+    pub segment: Time,
+    pub index: Hash,
 }
 
 impl ErikSegmentRef {
