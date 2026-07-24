@@ -8,7 +8,6 @@ use axum::{
 };
 use axum_server::tls_rustls::RustlsConfig;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, debug, error, info, warn};
 
 use std::collections::HashMap;
 use std::process::exit;
@@ -21,51 +20,19 @@ use tokio::{
     time::{Duration, sleep},
 };
 
+use log::{LevelFilter, debug, error, info, warn};
+
 use epic::{
-    erik::asn1,
-    erik::state::ResolvedErikIndex,
+    erik::{asn1, state::ResolvedErikIndex},
     fetch::{
         retrieval::{FetchMapper, Fqdn},
         rrdp::RrdpState,
     },
+    log::ConsoleLogger,
 };
 use rpki::{dep::bcder::encode::Values, uri};
 
 use structopt::StructOpt;
-
-struct ConsoleLogger {
-    max_level: Option<Level>,
-}
-
-impl ConsoleLogger {
-    pub fn init(max_level: LevelFilter) -> Result<(), SetLoggerError> {
-        log::set_boxed_logger(Box::new(ConsoleLogger {
-            max_level: max_level.to_level(),
-        }))
-        .map(|()| log::set_max_level(max_level))
-    }
-}
-
-impl log::Log for ConsoleLogger {
-    fn enabled(&self, metadata: &Metadata) -> bool {
-        self.max_level
-            .map(|max| metadata.level() <= max)
-            .unwrap_or(false)
-    }
-
-    fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            let prefix = match record.metadata().level() {
-                Level::Trace => "***",
-                Level::Debug => "*",
-                _ => "",
-            };
-            println!("{}{}", prefix, record.args());
-        }
-    }
-
-    fn flush(&self) {}
-}
 
 fn bad_hash(val: String) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, format!("invalid hash: {val}"))

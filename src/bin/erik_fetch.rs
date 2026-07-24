@@ -2,12 +2,16 @@
 
 use std::path::PathBuf;
 
+use log::LevelFilter;
 use rpki::{rrdp, uri};
 use structopt::StructOpt;
 
-use epic::fetch::{
-    erik_client::{self, ErikClient},
-    retrieval::{FetchMapper, Fqdn},
+use epic::{
+    fetch::{
+        erik_client::{self, ErikClient},
+        retrieval::{FetchMapper, Fqdn},
+    },
+    log::ConsoleLogger,
 };
 
 #[tokio::main]
@@ -20,6 +24,10 @@ async fn main() {
 
 async fn try_main() -> Result<(), anyhow::Error> {
     let opts = Opt::from_args();
+
+    if let Err(cause) = ConsoleLogger::init(LevelFilter::Debug) {
+        panic!("Failed to initialize logger: {}", cause);
+    }
 
     let mapper = FetchMapper::empty();
 
