@@ -6,12 +6,14 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use axum_server::tls_rustls::RustlsConfig;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError, debug, error, info, warn};
 
 use std::collections::HashMap;
 use std::process::exit;
 use std::str::FromStr;
+use std::net::SocketAddr;
 
 use std::sync::Arc;
 use tokio::{
@@ -129,7 +131,7 @@ type State = Arc<RwLock<ServerState>>;
 
 #[tokio::main]
 async fn main() {
-    let opts = Opt::from_args();
+    let opts = Arc::new(Opt::from_args());
     if let Err(cause) = ConsoleLogger::init(LevelFilter::Debug) {
         panic!("Failed to initialize logger: {}", cause);
     }
@@ -146,7 +148,6 @@ async fn main() {
         exit(1);
     }
     if let Ok(mut rrdp) = init_rrdp {
-        info!("Starting HTTP server on port {}", opts.port);
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let mut init = ServerState::init();
@@ -155,6 +156,7 @@ async fn main() {
         let state: State = Arc::new(RwLock::new(init));
         let state_for_rrdp_updates = state.clone();
 
+        let cfg = opts.clone();
         let updater = rt.spawn(async move {
             loop {
                 sleep(Duration::from_secs(30)).await;
@@ -164,18 +166,18 @@ async fn main() {
                     continue;
                 }
                 let mut state = state_for_rrdp_updates.write().await;
-                state.update(&opts.fqdn, &rrdp);
+                state.update(&cfg.fqdn, &rrdp);
             }
         });
         let http_state = state.clone();
-        let http = run(opts.port, http_state);
+        let http = run(opts.clone(), http_state);
         if let (_, Err(cause)) = tokio::join!(updater, http) {
             error!("HTTP server failed: {}", cause);
         }
     }
 }
 
-async fn run(port: u16, state: State) -> anyhow::Result<()> {
+async fn run(opts: Arc<Opt>, state: State) -> anyhow::Result<()> {
     let ni_state = state.clone();
     let named_information = async move |Path((alg, val)): Path<(String, String)>| {
         if alg != "sha-256" {
@@ -222,10 +224,15 @@ async fn run(port: u16, state: State) -> anyhow::Result<()> {
         .route("/.well-known/ni/{alg}/{val}", get(named_information))
         .route("/.well-known/erik/index/{fqdn}", get(named_index));
 
-    let listener = tokio::net::TcpListener::bind(format!("[::]:{}", port))
+    let tls_config = RustlsConfig::from_pem_file(opts.cert_file.clone(), opts.key_file.clone()).await.unwrap();
+    debug!("Setup TLS from certificate {} and key {}", opts.cert_file, opts.key_file);
+
+    let addr = SocketAddr::from_str(format!("[::]:{}", opts.port).as_str())?;
+    axum_server::bind_rustls(addr, tls_config)
+        .serve(app.into_make_service())
         .await
         .unwrap();
-    axum::serve(listener, app).await.unwrap();
+    info!("Listening for HTTPS requests on {}:{}", addr.ip(), addr.port());
 
     debug!("# Server Logs");
 
@@ -243,4 +250,9 @@ struct Opt {
 
     #[structopt(long)]
     notify_url: uri::Https,
+
+    #[structopt(long, default_value="./certificate.pem")]
+    cert_file: String,
+    #[structopt(long, default_value="./key.pem")]
+    key_file: String,
 }
