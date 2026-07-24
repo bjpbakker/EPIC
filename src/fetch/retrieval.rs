@@ -115,6 +115,7 @@ impl ResolvedSource {
                 let client = Client::builder()
                     .danger_accept_invalid_certs(true) // make this configurable
                     .danger_accept_invalid_hostnames(true)
+                    .use_rustls_tls()
                     .timeout(Duration::from_secs(60))
                     .build()?;
 
