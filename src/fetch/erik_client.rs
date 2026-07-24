@@ -137,10 +137,10 @@ impl ErikClient {
             // Keep the partitions still included in the new index
             // and drop the rest.
             self.partitions
-                .retain(|hash, _| partitions_to_process.contains(&hash));
+                .retain(|hash, _| partitions_to_process.contains(hash));
 
             // Remove the references to partitions we already have
-            partitions_to_process.retain(|hash| !self.partitions.contains_key(&hash));
+            partitions_to_process.retain(|hash| !self.partitions.contains_key(hash));
 
             for new_partition_hash in partitions_to_process {
                 let partition = get_erik_partition(new_partition_hash, server, mapper).await?;
@@ -156,13 +156,13 @@ impl ErikClient {
     /// Save the state of this client instance to disk
     pub fn save(&self, state_dir: &Path) -> anyhow::Result<()> {
         let fqdn: Fqdn = self.index.index_scope().try_into()?;
-        let state_file = Self::state_file(&state_dir, &fqdn);
+        let state_file = Self::state_file(state_dir, &fqdn);
         util::save_json(&self, &state_file)
     }
 
     /// Load a client instance from disk
     pub fn load(state_dir: &Path, fqdn: &Fqdn) -> anyhow::Result<Self> {
-        let state_file = Self::state_file(&state_dir, fqdn);
+        let state_file = Self::state_file(state_dir, fqdn);
         util::load_json(&state_file)
     }
 

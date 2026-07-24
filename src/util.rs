@@ -36,15 +36,15 @@ pub fn save_file(content: &[u8], full_path: &Path) -> anyhow::Result<()> {
 /// Creates a new File or opens an exiting one. If the file did not exist, the path
 /// will be created if it did not exist yet.
 pub fn create_file_with_path(path: &Path) -> anyhow::Result<File> {
-    if !path.exists() {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).with_context(|| {
-                format!(
-                    "Could not create dir path for: {}",
-                    parent.to_string_lossy()
-                )
-            })?;
-        }
+    if !path.exists()
+        && let Some(parent) = path.parent()
+    {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "Could not create dir path for: {}",
+                parent.to_string_lossy()
+            )
+        })?;
     }
     File::create(path).with_context(|| format!("Could not create file: {}", path.to_string_lossy()))
 }

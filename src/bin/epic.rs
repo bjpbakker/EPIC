@@ -10,9 +10,9 @@ use axum_server::tls_rustls::RustlsConfig;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::process::exit;
 use std::str::FromStr;
-use std::net::SocketAddr;
 
 use std::sync::Arc;
 use tokio::{
@@ -85,8 +85,7 @@ impl ServerState {
     fn get_index(&self, fqdn_str: &str) -> Option<&asn1::ErikIndex> {
         Fqdn::from_str(fqdn_str)
             .ok()
-            .map(|fqdn| self.indices.get(&fqdn))
-            .flatten()
+            .and_then(|fqdn| self.indices.get(&fqdn))
     }
 
     fn get_object(&self, hash: &asn1::Hash) -> Option<&Bytes> {
@@ -191,15 +190,24 @@ async fn run(opts: Arc<Opt>, state: State) -> anyhow::Result<()> {
         .route("/.well-known/ni/{alg}/{val}", get(named_information))
         .route("/.well-known/erik/index/{fqdn}", get(named_index));
 
-    let tls_config = RustlsConfig::from_pem_file(opts.cert_file.clone(), opts.key_file.clone()).await.unwrap();
-    debug!("Setup TLS from certificate {} and key {}", opts.cert_file, opts.key_file);
+    let tls_config = RustlsConfig::from_pem_file(opts.cert_file.clone(), opts.key_file.clone())
+        .await
+        .unwrap();
+    debug!(
+        "Setup TLS from certificate {} and key {}",
+        opts.cert_file, opts.key_file
+    );
 
     let addr = SocketAddr::from_str(format!("[::]:{}", opts.port).as_str())?;
     axum_server::bind_rustls(addr, tls_config)
         .serve(app.into_make_service())
         .await
         .unwrap();
-    info!("Listening for HTTPS requests on {}:{}", addr.ip(), addr.port());
+    info!(
+        "Listening for HTTPS requests on {}:{}",
+        addr.ip(),
+        addr.port()
+    );
 
     debug!("# Server Logs");
 
@@ -218,8 +226,8 @@ struct Opt {
     #[structopt(long)]
     notify_url: uri::Https,
 
-    #[structopt(long, default_value="./certificate.pem")]
+    #[structopt(long, default_value = "./certificate.pem")]
     cert_file: String,
-    #[structopt(long, default_value="./key.pem")]
+    #[structopt(long, default_value = "./key.pem")]
     key_file: String,
 }
