@@ -13,9 +13,7 @@ use rpki::{
         encode::{self, PrimitiveContent, Values},
     },
     oid,
-    repository::{
-        Manifest,
-    },
+    repository::Manifest,
     uri,
 };
 use serde::{Deserialize, Serialize};
@@ -26,8 +24,8 @@ use crate::{
 };
 
 pub use rpki::dep::bcder::{Ia5String, Mode};
-pub use rpki::rrdp::Hash;
 pub use rpki::repository::x509::{Serial, Time};
+pub use rpki::rrdp::Hash;
 
 // Use 'bin/mkoid' in the bcder lib to produce these OIDs
 /// 1.2.840.113549.1.9.16.1.55
@@ -126,7 +124,9 @@ impl ErikIndex {
 
 impl From<&erik::state::ResolvedErikIndex> for ErikIndex {
     fn from(index: &erik::state::ResolvedErikIndex) -> Self {
-        let mut partitions: Vec<ErikPartitionRef> = index.partitions.values()
+        let mut partitions: Vec<ErikPartitionRef> = index
+            .partitions
+            .values()
             .map(ErikPartitionRef::from)
             .collect();
         partitions.sort();
