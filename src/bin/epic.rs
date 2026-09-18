@@ -137,6 +137,9 @@ async fn main() {
         });
         let http_state = state.clone();
         let http = run(opts.clone(), http_state);
+
+        // Run the updater and server threads in paralel
+        // and exit in case of unrecoverable errors.
         if let (_, Err(cause)) = tokio::join!(updater, http) {
             error!("HTTP server failed: {}", cause);
         }
@@ -190,7 +193,7 @@ async fn run(opts: Arc<Opt>, state: State) -> anyhow::Result<()> {
         .route("/.well-known/ni/{alg}/{val}", get(named_information))
         .route("/.well-known/erik/index/{fqdn}", get(named_index));
 
-    let tls_config = RustlsConfig::from_pem_file(opts.cert_file.clone(), opts.key_file.clone())
+    let tls_config = RustlsConfig::from_pem_file(&opts.cert_file, &opts.key_file)
         .await
         .unwrap();
     debug!(
