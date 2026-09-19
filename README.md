@@ -22,38 +22,39 @@ You can use the `erik_fetch` tool to interact with an ERIK relay.
 
 #### Simple mode: Proxy of trusted RRDP repoistory
 
-[x] Run server with in memory cache (epic binary)
-[x] Get updates from a single RRDP source
-[x] Serve index
-[x] Serve partitions
-[x] Serve binary objects
-[ ] Serve snapshot
-[ ] Serve Segment/-Index
+- [x] Run server with in memory cache (epic binary)
+- [x] Get updates from a single RRDP source
+- [x] Serve index
+- [x] Serve partitions
+- [x] Serve binary objects
+- [ ] Serve snapshot
+- [ ] Serve Segment/-Index
 
 #### Advanced Improvements
-[ ] Use key-value store with overflow to disk (foyer, sqlite?)
-[ ] Support multiple RRDP sources
-[ ] Support rsync sources
-[ ] Erik Proxy mode: fetch from other Erik Relays and make available
-[ ] Get and serve Trust Anchors (validated self-signed certificates + tiebreaker)
+
+- [ ] Use key-value store with overflow to disk (foyer, sqlite?)
+- [ ] Support multiple RRDP sources
+- [ ] Support rsync sources
+- [ ] Erik Proxy mode: fetch from other Erik Relays and make available
+- [ ] Get and serve Trust Anchors (validated self-signed certificates + tiebreaker)
 
 #### Very advanced.. add dedicated and embedded validator
 
-[ ] Use dedicated binary or mode?
-[ ] Validate TA
-[ ] Async / dispatch discovery and fetching repos
-[ ] Validate & tiebreak discovered manifest before inclusion in store
-[ ] Schedule re-fetching of repos
-[ ] Trigger validation on changes
-[ ] Validate TA tree
-[ ] Possibly: archive unused repos
-[ ] Possibly: back-off unresponsive repos
+- [ ] Use dedicated binary or mode?
+- [ ] Validate TA
+- [ ] Async / dispatch discovery and fetching repos
+- [ ] Validate & tiebreak discovered manifest before inclusion in store
+- [ ] Schedule re-fetching of repos
+- [ ] Trigger validation on changes
+- [ ] Validate TA tree
+- [ ] Possibly: archive unused repos
+- [ ] Possibly: back-off unresponsive repos
 
 ### Client Code
 
-[x] Simple client binary for debugging (erik_fetch)
-[x] Get index
-[x] Get partition
-[ ] Get object
-[ ] Get snapshot
-[ ] Get segments
+- [x] Simple client binary for debugging (erik_fetch)
+- [x] Get index
+- [x] Get partition
+- [ ] Get object
+- [ ] Get snapshot
+- [ ] Get segments
