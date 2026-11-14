@@ -118,7 +118,7 @@ impl ResolvedSource {
                     .use_rustls_tls()
                     .deflate(true)
                     .gzip(true)
-                    .timeout(Duration::from_secs(60))
+                    .timeout(Duration::from_secs(180))
                     .build()?;
 
                 let mut request_builder = client.get(uri.as_str());
