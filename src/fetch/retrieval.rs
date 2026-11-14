@@ -116,6 +116,8 @@ impl ResolvedSource {
                     .danger_accept_invalid_certs(true) // make this configurable
                     .danger_accept_invalid_hostnames(true)
                     .use_rustls_tls()
+                    .deflate(true)
+                    .gzip(true)
                     .timeout(Duration::from_secs(60))
                     .build()?;
 
