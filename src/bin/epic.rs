@@ -178,15 +178,18 @@ async fn main() {
         let updater = rt.spawn(async move {
             loop {
                 sleep(Duration::from_secs(30)).await;
-                info!("Updating RRDP");
-                if let Err(cause) = rrdp.update().await {
-                    warn!("RRDP update failed: {}", cause);
-                    continue;
+                match rrdp.update().await {
+                    Ok(true) => {
+                        let mut state = state_for_rrdp_updates.write().await;
+                        state.update(&cfg.fqdn, &rrdp);
+                        info!("RRDP: updated {}", cfg.fqdn.as_str());
+                    },
+                    Ok(false) => debug!("RRDP: no update for {}", cfg.fqdn.as_str()),
+                    Err(cause) => warn!("RRDP: failed to update {}: {}", cfg.fqdn.as_str(), cause)
                 }
-                let mut state = state_for_rrdp_updates.write().await;
-                state.update(&cfg.fqdn, &rrdp);
             }
         });
+
         let http_state = state.clone();
         let http = run(opts.clone(), http_state);
 
@@ -274,19 +277,18 @@ async fn run(opts: Arc<Opt>, state: State) -> anyhow::Result<()> {
         opts.cert_file, opts.key_file
     );
 
+    let server_handle = axum_server::Handle::new();
+    let listen_handle = server_handle.clone();
+    tokio::spawn(async move {
+        if let Some(bound) = listen_handle.listening().await {
+            info!("Listening for HTTPS requests on {bound}");
+        }
+    });
     let addr = SocketAddr::from_str(format!("[::]:{}", opts.port).as_str())?;
     axum_server::bind_rustls(addr, tls_config)
+        .handle(server_handle)
         .serve(app.into_make_service())
-        .await
-        .unwrap();
-    info!(
-        "Listening for HTTPS requests on {}:{}",
-        addr.ip(),
-        addr.port()
-    );
-
-    debug!("# Server Logs");
-
+        .await?;
     Ok(())
 }
 
