@@ -27,6 +27,7 @@ You can use the `erik_fetch` tool to interact with an ERIK relay.
 - [x] Serve index
 - [x] Serve partitions
 - [x] Serve binary objects
+- [x] Support gzip compression for client requests
 - [ ] Serve snapshot
 - [ ] Serve Segment/-Index
 

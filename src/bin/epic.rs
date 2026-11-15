@@ -1,5 +1,7 @@
 use axum::{Router, routing::get};
 use axum_server::tls_rustls::RustlsConfig;
+use tower_http::compression::CompressionLayer;
+
 use bytes::Bytes;
 
 use std::net::SocketAddr;
@@ -140,7 +142,8 @@ async fn run<C: Cache>(opts: Arc<Opt>, state: State<C>) -> anyhow::Result<()> {
         .route("/.well-known/ni/{alg}/{val}", get(http::get_ni_object))
         .route("/.well-known/erik/index/{fqdn}", get(http::get_index))
         .route("/.well-known/erik/snapshot/{fqdn}", get(http::get_snapshot))
-        .with_state(state);
+        .with_state(state)
+        .layer(CompressionLayer::new());
 
     let tls_config = RustlsConfig::from_pem_file(&opts.cert_file, &opts.key_file)
         .await
