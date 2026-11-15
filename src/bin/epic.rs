@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    body::Bytes,
+    body::Body,
     extract::Path,
     http::{StatusCode, header},
     response::IntoResponse,
@@ -8,8 +8,11 @@ use axum::{
 };
 use axum_server::tls_rustls::RustlsConfig;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use bytes::Bytes;
+use futures_util::stream::{self, Stream};
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::process::exit;
 use std::str::FromStr;
@@ -23,14 +26,17 @@ use tokio::{
 use log::{LevelFilter, debug, error, info, warn};
 
 use epic::{
-    erik::{asn1, state::ResolvedErikIndex},
+    erik::{
+        asn1::{self, ErikPartition},
+        state::ResolvedErikIndex,
+    },
     fetch::{
         retrieval::{FetchMapper, Fqdn},
         rrdp::RrdpState,
     },
     log::ConsoleLogger,
 };
-use rpki::{dep::bcder::encode::Values, uri};
+use rpki::{dep::bcder::encode::Values, repository::Manifest, uri};
 
 use structopt::StructOpt;
 
@@ -91,6 +97,52 @@ impl ServerState {
     fn get_object(&self, hash: &asn1::Hash) -> Option<&Bytes> {
         self.objects.get(hash)
     }
+
+    /// Returns a stream of DER encoded objects making up the snapshot for
+    /// the given FQDN, or `None` if the FQDN is unknown.
+    ///
+    /// The stream is `'static`: it owns (cheap, ref-counted) clones of the
+    /// `Bytes` rather than borrowing `self`. This means the caller can drop
+    /// the `RwLock` read guard before the response body is sent, so a slow
+    /// client does not block the RRDP updater, and the snapshot stays
+    /// consistent even if the state is updated while streaming.
+    fn get_snapshot(
+        &self,
+        fqdn_str: &str,
+    ) -> Option<impl Stream<Item = Result<Bytes, Infallible>> + Send + 'static> {
+        if let Some(index) = self.get_index(fqdn_str) {
+            let mut objects: Vec<Bytes> = vec![];
+
+            // We have to loop through all the partitions and find all manifests, and then
+            // find all objects on those manifests.If anything is missing or cannot be parsed,
+            // which should never happen in practice, then it is simply skipped.
+            //
+            // This is okay, because the snapshot is a best effort collection of all current
+            // objects.
+            for partition_ref in index.partition_list() {
+                if let Some(partition_bytes) = self.get_object(&partition_ref.hash)
+                    && let Ok(partition) = ErikPartition::decode(partition_bytes.as_ref())
+                {
+                    for mft_ref in &partition.manifest_refs {
+                        if let Some(mft_bytes) = self.get_object(&mft_ref.hash)
+                            && let Ok(mft) = Manifest::decode(mft_bytes.as_ref(), false)
+                        {
+                            objects.push(mft_bytes.clone());
+                            objects.extend(
+                                mft.iter()
+                                    .filter_map(|f| asn1::Hash::try_from(f.hash().as_ref()).ok())
+                                    .filter_map(|hash| self.get_object(&hash).cloned()),
+                            );
+                        }
+                    }
+                }
+            }
+
+            Some(stream::iter(objects.into_iter().map(Ok)))
+        } else {
+            None
+        }
+    }
 }
 
 type State = Arc<RwLock<ServerState>>;
@@ -147,6 +199,7 @@ async fn main() {
 }
 
 async fn run(opts: Arc<Opt>, state: State) -> anyhow::Result<()> {
+    // Support function to get an object given the hash
     let ni_state = state.clone();
     let named_information = async move |Path((alg, val)): Path<(String, String)>| {
         if alg != "sha-256" {
@@ -173,6 +226,7 @@ async fn run(opts: Arc<Opt>, state: State) -> anyhow::Result<()> {
         }
     };
 
+    // Support function to get the index for a given FQDN
     let index_state = state.clone();
     let named_index = async move |Path(fqdn): Path<String>| {
         debug!("GET Erik index for {fqdn}");
@@ -185,13 +239,32 @@ async fn run(opts: Arc<Opt>, state: State) -> anyhow::Result<()> {
         }
     };
 
+    // Support function to get the snapshot for a given FQDN
+    let snapshot_state = state.clone();
+    let snapshot = async move |Path(fqdn): Path<String>| {
+        debug!("GET Erik snapshot for {fqdn}");
+        // The read guard is dropped at the end of this statement, before
+        // the body is streamed to the client.
+        let snapshot = snapshot_state.read().await.get_snapshot(&fqdn);
+        match snapshot {
+            Some(objects) => (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/octet-stream+der")],
+                Body::from_stream(objects),
+            )
+                .into_response(),
+            None => not_found("snapshot", fqdn).into_response(),
+        }
+    };
+
     let app = Router::new()
         .route(
             "/",
             get(|| async { "EPIC: Erik Protocol Implementation Concept" }),
         )
         .route("/.well-known/ni/{alg}/{val}", get(named_information))
-        .route("/.well-known/erik/index/{fqdn}", get(named_index));
+        .route("/.well-known/erik/index/{fqdn}", get(named_index))
+        .route("/.well-known/erik/snapshot/{fqdn}", get(snapshot));
 
     let tls_config = RustlsConfig::from_pem_file(&opts.cert_file, &opts.key_file)
         .await
